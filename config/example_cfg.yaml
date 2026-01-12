@@ -1,0 +1,23 @@
+# Example configuration
+extractors:
+  classification:
+    categories:
+      # Define your buckets for the model to match with (or return None)
+      # - More descriptive phrases often work better than single words
+      - "a recipe or cooking instructions":
+        - op: move
+          name: recipes
+      - "a receipt, bill, or document":
+        - op: move
+          name: documents
+      - "an outdoor scene with nature or buildings":
+        - op: tag
+          name: type
+          value: outdoor
+      - "an indoor room or interior space":
+        - op: tag
+          name: type
+          value: indoor
+  metadata:
+    # Adding this extractor will show the metadata in the journal, even if 
+    # no operations are set up 

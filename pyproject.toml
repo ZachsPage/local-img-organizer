@@ -1,0 +1,42 @@
+# Works better with `src` setups 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "local-img-organizer"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow>=12.0.0",
+    "pydantic>=2.12.5",
+    "pyyaml>=6.0.0",
+    "torch>=2.9.1",
+    "transformers>=4.57.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.14.9",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+per-file-ignores = {"__init__.py" = ["F401", "F403"]}
+select = [
+    "F",      # Pyflakes
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort (import sorting)
+    "UP",     # pyupgrade (modernize Python code)
+    "B",      # flake8-bugbear (common bugs)
+    "C4",     # flake8-comprehensions (better comprehensions)
+    "SIM",    # flake8-simplify (code simplification)
+    "RUF",    # Ruff-specific rules
+    "ANN001", # Missing type annotation for function argument
+    "ANN201", # Missing return type annotation for public function
+    "ANN202", # Missing return type annotation for private function
+]
