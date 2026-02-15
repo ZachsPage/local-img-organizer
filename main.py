@@ -1,3 +1,5 @@
+"""Main entry - see main"""
+
 import argparse
 import subprocess
 import time
@@ -8,6 +10,7 @@ from local_img_organizer import Cfg, classify_folder, load_model
 
 
 def parse_args() -> argparse.Namespace:
+    """Return the parsed arguments"""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-i",
@@ -27,6 +30,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run extractors & operations for all images"""
     args = parse_args()
     cfg = Cfg.from_file(args.cfg)
     if not (categories := cfg.class_cats):
@@ -60,7 +64,9 @@ def main() -> None:
                 for path in images:
                     try:
                         subprocess.run(
-                            ["xdg-open", str(path)], check=True, stderr=subprocess.DEVNULL
+                            ["xdg-open", str(path)],
+                            check=True,
+                            stderr=subprocess.DEVNULL,
                         )
                     except subprocess.CalledProcessError as e:
                         print(f"  Error opening {path}: {e}")

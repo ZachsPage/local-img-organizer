@@ -1,3 +1,5 @@
+"""Image classification"""
+
 from pathlib import Path
 
 import torch
@@ -6,11 +8,9 @@ from transformers import CLIPModel, CLIPProcessor
 
 
 def load_model(device: str = "cuda") -> tuple[CLIPModel, CLIPProcessor]:
-    """
-    Returns a tuple of (model, processor)
+    """Return a tuple of (model, processor)
 
-    Args:
-    - device: "cuda" for NVIDIA GPU, "cpu" for processor (much slower)
+    :param device: "cuda" for NVIDIA GPU, "cpu" for processor (much slower)
 
     Notes:
     - Configures CLIP (Contrastive Language-Image Pre-training) model and processor
@@ -37,6 +37,7 @@ def load_model(device: str = "cuda") -> tuple[CLIPModel, CLIPProcessor]:
         - Convert tokens to integer IDs from the model's vocabulary
         - Add special tokens (start/end markers the model expects)
         - Pad sequences so they're all the same length
+
     """
     model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
     model.to(device)
@@ -58,8 +59,7 @@ def classify_folder(
     batch_size: int = 16,
     device: str = "cuda",
 ) -> dict[str, str]:
-    """
-    Returns a dict mapping image paths (as strings) to their category (or None)
+    """Return a dict mapping image paths (as strings) to their category (or None)
 
     Args:
         folder_path: Path to folder containing images
@@ -82,12 +82,13 @@ def classify_folder(
         The overhead of sending data to GPU, launching computations, etc. happens once per batch.
         Ex. No batching: 100 images = 100 round trips to GPU vs. batch of 16: 100 images = 7
         Can play with the batch size - too large & the GPU memory will run out
+
     """
     folder = Path(folder_path)
 
     # Find all common image files in the folder
     image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.bmp"]
-    image_paths = []
+    image_paths: list[Path] = []
     for ext in image_extensions:
         image_paths.extend(folder.glob(ext))
         image_paths.extend(folder.glob(ext.upper()))  # ex. .JPG

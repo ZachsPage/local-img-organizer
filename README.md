@@ -55,6 +55,8 @@ Uses [uv](https://github.com/astral-sh/uv) as a project manager:
 ```bash
 # Run the project
 uv run main.py
+# Type check
+uv run mypy src/
 # Lint & format
 uv run ruff check && uv run ruff format
 # Fix linting
