@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 [project]
 name = "local-img-organizer"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "pillow>=12.0.0",
     "pydantic>=2.12.5",
@@ -17,26 +17,34 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.1",
     "pytest>=9.0.2",
     "ruff>=0.14.9",
+    "types-pyyaml>=6.0.12.20250915",
 ]
 
 [tool.ruff]
 line-length = 100
 
 [tool.ruff.lint]
-per-file-ignores = {"__init__.py" = ["F401", "F403"]}
-select = [
-    "F",      # Pyflakes
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "I",      # isort (import sorting)
-    "UP",     # pyupgrade (modernize Python code)
-    "B",      # flake8-bugbear (common bugs)
-    "C4",     # flake8-comprehensions (better comprehensions)
-    "SIM",    # flake8-simplify (code simplification)
-    "RUF",    # Ruff-specific rules
-    "ANN001", # Missing type annotation for function argument
-    "ANN201", # Missing return type annotation for public function
-    "ANN202", # Missing return type annotation for private function
+per-file-ignores = {"__init__.py" = ["F401", "F403"], "tests/**" = ["D100", "D101", "D103", "ANN", "S101", "RUF012"]}
+select = ["ALL"]
+ignore = [
+    "FIX", "TD", # I like TODOs
+    "D415", "D400", # don't like ending in periods
+    "D205", # don't like extra blank lines
+    "T201", # lemme print
+    "ERA001", # commented out code is useful in explanations
+    "S603", "S607", # subprocesses are okay
+    "PLR0913", # too many args - will fix later
+    "TRY003", "EM102", # f-string exceptions
+    "D211", "D213", "D203", # docstring blank line conflicts
+    "COM812", # avoid formatter conflicts
 ]
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["transformers.*", "torch.*"]
+ignore_missing_imports = true

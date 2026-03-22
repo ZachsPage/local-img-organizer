@@ -1,3 +1,5 @@
+"""Configuration"""
+
 from pathlib import Path
 from typing import Any
 
@@ -24,16 +26,16 @@ class Cfg(BaseModel):
 
     @classmethod
     def from_file(cls, cfg_file: Path) -> "Cfg":
-        """Returns validated configuration from YAML file"""
-        with open(cfg_file) as f:
+        """Return validated configuration from YAML file"""
+        with Path.open(cfg_file) as f:
             data = yaml.safe_load(f)
         return cls.model_validate(data)
 
     @property
     def class_cats(self) -> list[str]:
-        """Returns configured image classification category strings"""
+        """Return configured image classification category strings"""
         if self.extractors.classification:
-            cats = []
+            cats: list[str] = []
             for item in self.extractors.classification.categories:
                 if isinstance(item, dict):
                     # Extract the category string (dict key)
