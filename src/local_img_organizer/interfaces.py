@@ -1,11 +1,14 @@
 """Defines interfaces for implementations"""
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 class Operations(StrEnum):
@@ -66,13 +69,18 @@ class Operation(ABC):
         """Return callable that will run the operation & return its data in a Journal.Entry"""
 
         def run_get_entry() -> Journal.Entry:
-            # TODO - need error handling here - if 'run' fails, how should that be handled - log
-            # error & skip journal, or journal as a failure?
+            def run_safe() -> OpOut:
+                try:
+                    return self.run(data)
+                except Exception as ex:  # noqa: BLE001
+                    _log.exception(f"Error for {self.op_type} - in: {data}, out: {ex}")
+                    return {"error": str(ex)}
+
             return Journal.Entry(
                 op=self.op_type,
                 src=data.src,
                 op_in=data.ext_data,
-                op_out=self.run(data),
+                op_out=run_safe(),
             )
 
         return run_get_entry
@@ -80,7 +88,7 @@ class Operation(ABC):
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Verify subclass contract at definition time"""
         super().__init_subclass__(**kwargs)
-        if not cls.op_type:
+        if not getattr(cls, "op_type", None):
             raise TypeError(f"{cls.__name__} must define op_type")
 
 
@@ -91,18 +99,25 @@ class Extractor(ABC):
     ops: list[Operation]  # configured operations
 
     @abstractmethod
-    def run(self, img_dir: Path) -> Generator[Callable[[], Journal.Entry]]:
+    def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
         """Run the extractor to get all of its metadata, then for each of its assigned Operations,
         yield the prepared op for each located img
         """
 
 
-def run(img_dir: Path, journal: Journal, extractors: list[Extractor]) -> None:
+def run_all(
+    img_dir: Path,
+    journal: Journal,
+    extractors: list[Extractor],
+    *,
+    is_dry: bool = False,
+) -> None:
     """Top level function to tie all the interfaces together
     :param img_dir: Dir with the images to run on (recursively)
     :param journal: Journal implementation
     :param extractors: Extractors to set up & execute Operations for
+    :param is_dry: Do not actually execute operations
     """
     for ext in extractors:
-        for op in ext.run(img_dir):
+        for op in ext.run(img_dir, is_dry=is_dry):
             journal.log(op())
