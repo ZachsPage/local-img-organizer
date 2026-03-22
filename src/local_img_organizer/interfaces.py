@@ -58,32 +58,64 @@ class Operation(ABC):
         ext_data: ExtOut
 
     @abstractmethod
-    def run(self, data: Data) -> OpOut:
-        """Return OpOut - which should have data around what was done by this Operation"""
+    def plan(self, data: Data) -> OpOut:
+        """Compute and return what this operation would do"""
 
     @abstractmethod
-    def undo(self, og_data: Data, og_data_out: OpOut) -> OpOut:
-        """Return what was done - is fed in what was originally done as indicated by the journal"""
+    def run(self, data: Data, planned: OpOut) -> None:
+        """Execute the planned operation's side effects"""
+
+    @abstractmethod
+    def undo(self, og_data: Data, og_out: OpOut) -> None:
+        """Reverse a previously executed operation"""
+
+    def _safe(
+        self,
+        action: Callable[[], None],
+        data: Data,
+        planned: OpOut,
+    ) -> OpOut:
+        """Wrap an action with error handling, return the OpOut or an error dict"""
+        try:
+            action()
+        except Exception as ex:  # noqa: BLE001
+            _log.exception(f"Error for {self.op_type} - in: {data}, out: {ex}")
+            return {"error": str(ex)}
+        return planned
 
     def prepare(self, data: Data) -> Callable[[], Journal.Entry]:
-        """Return callable that will run the operation & return its data in a Journal.Entry"""
+        """Return callable that will plan & run the operation, returning a Journal.Entry"""
 
         def run_get_entry() -> Journal.Entry:
-            def run_safe() -> OpOut:
-                try:
-                    return self.run(data)
-                except Exception as ex:  # noqa: BLE001
-                    _log.exception(f"Error for {self.op_type} - in: {data}, out: {ex}")
-                    return {"error": str(ex)}
-
+            planned = self.plan(data)
+            op_out = (
+                planned
+                if data.is_dry
+                else self._safe(lambda: self.run(data, planned), data, planned)
+            )
             return Journal.Entry(
                 op=self.op_type,
                 src=data.src,
                 op_in=data.ext_data,
-                op_out=run_safe(),
+                op_out=op_out,
             )
 
         return run_get_entry
+
+    def prepare_undo(self, entry: Journal.Entry) -> Callable[[], Journal.Entry]:
+        """Return callable that will undo a previously journaled operation"""
+
+        def undo_get_entry() -> Journal.Entry:
+            og_data = Operation.Data(src=entry.src, is_dry=False, ext_data=entry.op_in)
+            op_out = self._safe(lambda: self.undo(og_data, entry.op_out), og_data, entry.op_out)
+            return Journal.Entry(
+                op=self.op_type,
+                src=entry.src,
+                op_in=entry.op_in,
+                op_out=op_out,
+            )
+
+        return undo_get_entry
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Verify subclass contract at definition time"""

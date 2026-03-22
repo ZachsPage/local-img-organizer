@@ -10,6 +10,7 @@ from local_img_organizer.interfaces import Extractor, Journal, Operation, Operat
 
 _log = logging.getLogger(__name__)
 
+
 @dataclass
 class StubJournal(Journal):
     entries: list[Journal.Entry] = field(default_factory=list)
@@ -28,12 +29,16 @@ class StubOperation(Operation):
     op_type = Operations.RENAME
 
     @override
-    def run(self, data: Operation.Data) -> OpOut:
-        return {"tested": f"{data.src} with {data.ext_data['label']}"}
+    def plan(self, data: Operation.Data) -> OpOut:
+        return {"from": str(data.src), "to": f"{data.src}_renamed"}
 
     @override
-    def undo(self, og_data: Operation.Data, og_data_out: OpOut) -> OpOut:
-        return {"undid": f"{og_data.src} with {og_data_out['tested']}"}
+    def run(self, data: Operation.Data, planned: OpOut) -> None:
+        _log.info("would rename %s -> %s", planned["from"], planned["to"])
+
+    @override
+    def undo(self, og_data: Operation.Data, og_out: OpOut) -> None:
+        _log.info("would undo %s -> %s", og_out["to"], og_out["from"])
 
 
 class StubExtractor(Extractor):
@@ -66,40 +71,44 @@ def test_run_all(tmp_path):
         assert entry.op == Operations.RENAME
         assert entry.src in files
         assert entry.op_in == {"label": StubExtractor.label}
-        assert entry.op_out["tested"] == f"{entry.src} with {StubExtractor.label}"
+        assert entry.op_out == {"from": str(entry.src), "to": f"{entry.src}_renamed"}
 
     # Verify undo
     for entry in entries:
-        undo_out = op.undo(
-            Operation.Data(src=entry.src, is_dry=False, ext_data=entry.op_in),
-            entry.op_out,
-        )
-        assert undo_out["undid"] == f"{entry.src} with {entry.op_out['tested']}"
+        undo_entry = op.prepare_undo(entry)()
+        assert undo_entry.op == Operations.RENAME
+        assert undo_entry.op_out == entry.op_out
+
 
 def test_bad_op_no_name():
     """Test catching if a new Operation does not define op_type"""
     with pytest.raises(TypeError, match="must define op_type"):
+
         class BadOperation(Operation):
             pass
 
 
 def test_bad_op_run():
     """Test avoiding bubbling up operation exceptions, but ensure they are journaled"""
+
     class FailingOp(Operation):
         op_type = Operations.RENAME
 
         @override
-        def run(self, data: Operation.Data) -> OpOut:
+        def plan(self, data: Operation.Data) -> OpOut:
+            return {"planned": "something"}
+
+        @override
+        def run(self, data: Operation.Data, planned: OpOut) -> None:
             msg = "something went wrong"
             raise RuntimeError(msg)
 
         @override
-        def undo(self, og_data: Operation.Data, og_data_out: OpOut) -> OpOut:
-            return {}
+        def undo(self, og_data: Operation.Data, og_out: OpOut) -> None:
+            pass
 
     data = Operation.Data(src=Path("fake.png"), is_dry=False, ext_data={"label": "x"})
     entry = FailingOp().prepare(data)()
 
     # Verify error was captured, not raised
     assert entry.op_out == {"error": "something went wrong"}
-
