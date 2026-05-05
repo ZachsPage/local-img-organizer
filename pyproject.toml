@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "mypy>=1.19.1",
     "pytest>=9.0.2",
+    "pytest-cov>=6.0.0",
     "ruff>=0.14.9",
     "types-pyyaml>=6.0.12.20250915",
 ]
@@ -41,6 +42,12 @@ ignore = [
     "D211", "D213", "D203", # docstring blank line conflicts
     "COM812", # avoid formatter conflicts
 ]
+
+[tool.coverage.run]
+omit = ["*/classification.py"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=local_img_organizer --cov-report=term-missing --cov-fail-under=80"
 
 [tool.mypy]
 strict = true

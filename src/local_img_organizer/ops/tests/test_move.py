@@ -29,6 +29,7 @@ def test_roundtrip(tmp_path: Path) -> None:
     assert not exp_dest.exists()
     assert src.exists()
 
+
 def test_noop(tmp_path: Path) -> None:
     """Verify move was already done"""
     subdir_name = "subdir"
