@@ -66,7 +66,7 @@ class Operation(ABC):
         """Execute the planned operation's side effects"""
 
     @abstractmethod
-    def undo(self, og_data: Data, og_out: OpOut) -> None:
+    def undo(self, og_data: Data, og_planned: OpOut) -> None:
         """Reverse a previously executed operation"""
 
     def _safe(
@@ -102,6 +102,11 @@ class Operation(ABC):
 
         return run_get_entry
 
+    # TODO: Need a top-level run_undo() to mirror run_all() — reads a run journal, calls
+    # prepare_undo(entry) for each entry, logs results to a separate undo journal.
+    # The journal stays agnostic (just sees log(entry) calls either way); the CLI owns the
+    # distinction between run and undo journals. No redo needed — re-running the original
+    # operation from scratch is equivalent.
     def prepare_undo(self, entry: Journal.Entry) -> Callable[[], Journal.Entry]:
         """Return callable that will undo a previously journaled operation"""
 

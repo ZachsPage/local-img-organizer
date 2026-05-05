@@ -42,3 +42,10 @@ class Cfg(BaseModel):
                     cats.extend(item.keys())
             return cats
         return []
+
+    # TODO: Need a way to look up which Operations are configured for a matched category,
+    # so the classification Extractor can call the right ops per image. Currently the config
+    # only exposes category strings (class_cats), not the category→op mapping. Options:
+    # - Add a method here that returns {category_str: [Operation]} built from the YAML ops list
+    # - Let the Extractor filter (feels like the wrong layer — config owns the mapping)
+    # - Decide whether one image can match multiple categories / trigger multiple ops
