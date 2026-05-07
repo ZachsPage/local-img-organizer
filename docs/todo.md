@@ -7,9 +7,9 @@
 * First draft layout for `extractor` / `operation` / `journal` interfaces
     * Done
 * `operation` - `move` - done
-    * Add test coverage report
-* Revisit interface & `journal` interface to track & execute undos
+    * Add test coverage report - done
 * `extractor` - `classification`
+* Revisit interface & `journal` interface to track & execute undos
 * `extractor` - `metadata`
 * `operation` - `rename`
 * `operation` - `tag`

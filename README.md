@@ -63,4 +63,6 @@ uv run ruff check && uv run ruff format
 uv run ruff check --fix
 # Run all tests
 uv run pytest
+# For testing / an example, move some images into ./tests/my_data/ then:
+uv run main.py --input-dir ./tests/my_data/ -c ./config/example_cfg.yaml
 ```
