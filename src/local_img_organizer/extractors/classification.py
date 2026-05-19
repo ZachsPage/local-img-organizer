@@ -12,7 +12,7 @@ import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
-from local_img_organizer.interfaces import Extractor, Journal
+from local_img_organizer.interfaces import Extractor, Journal, Operation
 from local_img_organizer.utils import get_logger
 
 _log = get_logger(__name__)
@@ -28,11 +28,11 @@ class Classification(Extractor):
     # extractor / op to manage its own config that the top config maps in
     # - Also, want to assign default values here, and only change them if
     #   the yaml sets a value
+
     @dataclass
     class Cfg:
         """Extractor config"""
-
-        categories: list[str]
+        categories_to_ops: dict[str, Operation]
         threshold: float = 0.95  # want to be very certain
         device: Literal["cuda", "cpu"] = "cuda"  # use GPU
         batch_size: int = 16
@@ -45,11 +45,12 @@ class Classification(Extractor):
         cfg = self.cfg
         _log.info(f"Loading model using {cfg.device}...")
         model, processor = _load_model(cfg.device)
-        _log.info(f"Classifying images into {len(cfg.categories)} categories: {cfg.categories}...")
+        categories = cfg.categories_to_ops.keys()
+        _log.info(f"Classifying images into {len(categories)} categories: {categories}...")
         start_ns = time.time_ns()
         path_to_cats = _classify_folder(
             folder=img_dir,
-            labels=cfg.categories,
+            labels=categories,
             model=model,
             processor=processor,
             threshold=cfg.threshold,
@@ -61,12 +62,16 @@ class Classification(Extractor):
         _log.info(f"Classified {num_with_classes}/{len(path_to_cats)} images in {elapsed_s:.2f}s")
         if cfg.debug:
             self._debug(path_to_cats)
-        # TODO - want to define ExtOut that needs to be able support to_dict to give to Ops. Need
-        #  to figure out the best way to define that interface. For example, if this extractor
-        #  gets src -> classification, how does that work into ext_data & is handled by Move?
-        #  The config configures the op per bucket, so really self.ops is a list, but should be
-        #   a dict? Or the interface doesnt define self.ops, and categories is the category
-        #   to the list of ops?
+            return
+        for path, category in path_to_cats.items():
+            op = cfg.categories_to_ops[category]
+            # TODO - right now the op takes in the ext_data, but that makes ops dependent on extractors,
+            # even though extractors run the ops.  Think this interface is right from the config - 
+            # so maybe just need to remove ext_data? The og. idea was that its how the extractor
+            # data makes it into the journal entry... so maybe an alternative way, or at least 
+            # add to the docstring that the data should not be used directly - maybe just dont pass
+            # into Data?
+            yield op.prepare(Operation.Data(src=path, is_dry=is_dry, ext_data={"category": category}))
         # TODO - set up passing Operation.Data.ext_data: ExtOut to the op generator
         # TODO - handle is_dry - still need to run classification
 
