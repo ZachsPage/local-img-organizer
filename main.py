@@ -1,12 +1,12 @@
 """Main entry - see main"""
 
 import argparse
-import subprocess
-import time
-from collections import defaultdict
 from pathlib import Path
 
-from local_img_organizer import Cfg, classify_folder, load_model
+from local_img_organizer import Cfg
+
+# TODO - maybe change the naming schema here to end in Ext & Op?
+from local_img_organizer.extractors.classification import Classification
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,46 +33,15 @@ def main() -> None:
     """Run extractors & operations for all images"""
     args = parse_args()
     cfg = Cfg.from_file(args.cfg)
-    if not (categories := cfg.class_cats):
-        print("No categories configured")
-        return
-
-    print("Loading model...")
-    model, processor = load_model()
-    print(f"Classifying images into {len(categories)} categories: {categories}...")
-    start_ns = time.time_ns()
-    path_to_cats = classify_folder(
-        folder_path=args.input_dir,
-        labels=cfg.class_cats,
-        model=model,
-        processor=processor,
-        threshold=0.95,
-        batch_size=16,
-    )
-    elapsed_s = (time.time_ns() - start_ns) / 1e9
-    num_with_classes = len([x for x in path_to_cats.values() if x])
-    print(f"Classified {num_with_classes}/{len(path_to_cats)} images in {elapsed_s:.2f}s")
-
-    if args.debug:  # Interactively display images grouped by category for manual verification
-        categorized = defaultdict(list)
-        for path, category in path_to_cats.items():
-            categorized[category if category else "[no match]"].append(path)
-        for category in sorted(categorized.keys()):
-            images = categorized[category]
-            print(f"\nShowing {len(images)} imgs classified as '{category}'")
-            try:
-                for path in images:
-                    try:
-                        subprocess.run(
-                            ["xdg-open", str(path)],
-                            check=True,
-                            stderr=subprocess.DEVNULL,
-                        )
-                    except subprocess.CalledProcessError as e:
-                        print(f"  Error opening {path}: {e}")
-            except KeyboardInterrupt:
-                print("\n  Skipping to next category...")
-                continue
+    if not cfg.class_cats:
+        raise RuntimeError("No classification categories configured")
+    Classification(
+        ops=[],
+        cfg=Classification.Cfg(
+            categories=cfg.class_cats,
+            debug=args.debug,
+        ),
+    ).run(Path(args.input_dir), is_dry=True)
 
 
 if __name__ == "__main__":

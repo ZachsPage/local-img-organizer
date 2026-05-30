@@ -47,9 +47,9 @@ class StubExtractor(Extractor):
     @override
     def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
         for file in img_dir.iterdir():
-            op_in = Operation.Data(src=file, is_dry=is_dry, ext_data={"label": self.label})
+            data = Operation.Data(src=file, is_dry=is_dry)
             for op in self.ops:
-                yield op.prepare(op_in)
+                yield op.prepare(data, ext_data={"label": self.label})
 
 
 def test_run_all(tmp_path):
@@ -107,8 +107,8 @@ def test_bad_op_run():
         def undo(self, og_data: Operation.Data, og_out: OpOut) -> None:
             pass
 
-    data = Operation.Data(src=Path("fake.png"), is_dry=False, ext_data={"label": "x"})
-    entry = FailingOp().prepare(data)()
+    data = Operation.Data(src=Path("fake.png"), is_dry=False)
+    entry = FailingOp().prepare(data, ext_data={"label": "x"})()
 
     # Verify error was captured, not raised
     assert entry.op_out == {"error": "something went wrong"}

@@ -14,7 +14,7 @@ def test_roundtrip(tmp_path: Path) -> None:
     src.touch()
     subdir_name = "subdir"
     op = Move(subdir_name=subdir_name)
-    data_in = Move.Data(src=src, is_dry=False, ext_data={})
+    data_in = Move.Data(src=src, is_dry=False)
     # Verify expected path but is not moved yet
     plan = op.plan(data_in)
     exp_dest = Path(plan["dest"])
@@ -37,7 +37,7 @@ def test_noop(tmp_path: Path) -> None:
     src.parent.mkdir(parents=True, exist_ok=True)
     src.touch()
     op = Move(subdir_name=subdir_name)
-    data_in = Move.Data(src=src, is_dry=False, ext_data={})
+    data_in = Move.Data(src=src, is_dry=False)
     # Verify nothing to do - already in subdir - rest of calls also do nothing
     plan = op.plan(data_in)
     assert not plan
@@ -49,4 +49,4 @@ def test_failures(tmp_path: Path) -> None:
     """Verify any failure paths"""
     # Verify input is not a file
     with pytest.raises(ValueError, match="is not a file"):
-        Move(subdir_name="test").plan(Move.Data(src=tmp_path, is_dry=False, ext_data={}))
+        Move(subdir_name="test").plan(Move.Data(src=tmp_path, is_dry=False))

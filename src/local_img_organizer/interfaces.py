@@ -55,7 +55,6 @@ class Operation(ABC):
 
         src: Path
         is_dry: bool  # do not actually execute
-        ext_data: ExtOut
 
     @abstractmethod
     def plan(self, data: Data) -> OpOut:
@@ -83,7 +82,7 @@ class Operation(ABC):
             return {"error": str(ex)}
         return planned
 
-    def prepare(self, data: Data) -> Callable[[], Journal.Entry]:
+    def prepare(self, data: Data, ext_data: ExtOut | None = None) -> Callable[[], Journal.Entry]:
         """Return callable that will plan & run the operation, returning a Journal.Entry"""
 
         def run_get_entry() -> Journal.Entry:
@@ -96,7 +95,7 @@ class Operation(ABC):
             return Journal.Entry(
                 op=self.op_type,
                 src=data.src,
-                op_in=data.ext_data,
+                op_in=ext_data or {},
                 op_out=op_out,
             )
 
@@ -111,7 +110,7 @@ class Operation(ABC):
         """Return callable that will undo a previously journaled operation"""
 
         def undo_get_entry() -> Journal.Entry:
-            og_data = Operation.Data(src=entry.src, is_dry=False, ext_data=entry.op_in)
+            og_data = Operation.Data(src=entry.src, is_dry=False)
             op_out = self._safe(lambda: self.undo(og_data, entry.op_out), og_data, entry.op_out)
             return Journal.Entry(
                 op=self.op_type,

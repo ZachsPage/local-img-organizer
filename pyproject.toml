@@ -33,12 +33,12 @@ select = ["ALL"]
 ignore = [
     "FIX", "TD", # I like TODOs
     "D415", "D400", # don't like ending in periods
-    "D205", # don't like extra blank lines
+    "D204", "D205", # don't like extra blank lines
     "T201", # lemme print
     "ERA001", # commented out code is useful in explanations
     "S603", "S607", # subprocesses are okay
     "PLR0913", # too many args - will fix later
-    "TRY003", "EM102", # f-string exceptions
+    "TRY003", "EM101", "EM102", # f-string exceptions
     "D211", "D213", "D203", # docstring blank line conflicts
     "COM812", # avoid formatter conflicts
 ]

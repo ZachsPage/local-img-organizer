@@ -1,13 +1,101 @@
 """Image classification"""
 
+import subprocess
+import time
+from collections import defaultdict
+from collections.abc import Callable, Generator
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, override
 
 import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
+from local_img_organizer.interfaces import Extractor, Journal, Operation
+from local_img_organizer.utils import get_logger
 
-def load_model(device: str = "cuda") -> tuple[CLIPModel, CLIPProcessor]:
+_log = get_logger(__name__)
+
+type ImgToClass = dict[Path, str | None]
+
+
+@dataclass
+class Classification(Extractor):
+    """Extracts image classifications to be used in Operations"""
+
+    # TODO - need to have a util to get this from the config easily - want each
+    # extractor / op to manage its own config that the top config maps in
+    # - Also, want to assign default values here, and only change them if
+    #   the yaml sets a value
+
+    @dataclass
+    class Cfg:
+        """Extractor config"""
+
+        categories_to_ops: dict[str, Operation]
+        threshold: float = 0.95  # want to be very certain
+        device: Literal["cuda", "cpu"] = "cuda"  # use GPU
+        batch_size: int = 16
+        debug: bool = False
+
+    cfg: Cfg
+
+    @override
+    def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
+        cfg = self.cfg
+        _log.info(f"Loading model using {cfg.device}...")
+        model, processor = _load_model(cfg.device)
+        categories = list(cfg.categories_to_ops.keys())
+        _log.info(f"Classifying images into {len(categories)} categories: {categories}...")
+        start_ns = time.time_ns()
+        path_to_cats = _classify_folder(
+            folder=img_dir,
+            labels=categories,
+            model=model,
+            processor=processor,
+            threshold=cfg.threshold,
+            batch_size=cfg.batch_size,
+            device=cfg.device,
+        )
+        elapsed_s = (time.time_ns() - start_ns) / 1e9
+        num_with_classes = len([x for x in path_to_cats.values() if x])
+        _log.info(f"Classified {num_with_classes}/{len(path_to_cats)} images in {elapsed_s:.2f}s")
+        if cfg.debug:
+            self._debug(path_to_cats)
+            return
+        for path, category in path_to_cats.items():
+            if category is None:
+                continue
+            op = cfg.categories_to_ops[category]
+            yield op.prepare(
+                Operation.Data(src=path, is_dry=is_dry), ext_data={"category": category}
+            )
+
+    def _debug(self, path_to_cats: ImgToClass) -> None:
+        """Interactively display images grouped by category for manual verification"""
+        categorized = defaultdict(list)
+        for path, category in path_to_cats.items():
+            categorized[category if category else "[no match]"].append(path)
+        for category in sorted(categorized.keys()):
+            images = categorized[category]
+            _log.info(f"\nShowing {len(images)} imgs classified as '{category}'")
+            try:
+                for path in images:
+                    try:
+                        subprocess.run(
+                            ["xdg-open", str(path)],
+                            check=True,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    except subprocess.CalledProcessError as e:
+                        _log.error(f"  Unable to open {path}: {e}")
+            except KeyboardInterrupt:
+                _log.info("\n  Skipping to next category...")
+                continue
+
+
+def _load_model(device: str) -> tuple[CLIPModel, CLIPProcessor]:
     """Return a tuple of (model, processor)
 
     :param device: "cuda" for NVIDIA GPU, "cpu" for processor (much slower)
@@ -42,27 +130,28 @@ def load_model(device: str = "cuda") -> tuple[CLIPModel, CLIPProcessor]:
     model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
     model.to(device)
     # Set model to evaluation mode (as opposed to training mode)
-    # This disables features only needed during training like dropout
-    # (dropout randomly zeros some values to prevent overfitting during training)
+    # - This disables features only needed during training like dropout (randomly zeros some values
+    #   to prevent overfitting during training)
     model.eval()
-
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+    processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14", use_fast=False)
     return model, processor
 
 
-def classify_folder(
-    folder_path: str,
+# TODO - would likely be cleaner as a generator to reduce memory usage
+def _classify_folder(
+    folder: Path,
+    *,
     labels: list[str],
     model: CLIPModel,
     processor: CLIPProcessor,
-    threshold: float = 0.25,
-    batch_size: int = 16,
-    device: str = "cuda",
-) -> dict[str, str]:
+    threshold: float,
+    batch_size: int,
+    device: str,
+) -> ImgToClass:
     """Return a dict mapping image paths (as strings) to their category (or None)
 
     Args:
-        folder_path: Path to folder containing images
+        folder: Path to folder containing images
         labels: List of text descriptions for categories
             Tip: phrases like "a photo of a receipt" often work better than just "receipt"
         model: The loaded CLIP model
@@ -70,7 +159,6 @@ def classify_folder(
         threshold: Minimum confidence to assign a label (0-1)
             - Too low: images get incorrectly categorized
             - Too high: too many images marked as None
-            - Start with 0.25 and adjust based on results
         batch_size: How many images to process at once (explained below)
         device: "cuda" or "cpu"
 
@@ -84,8 +172,6 @@ def classify_folder(
         Can play with the batch size - too large & the GPU memory will run out
 
     """
-    folder = Path(folder_path)
-
     # Find all common image files in the folder
     image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.bmp"]
     image_paths: list[Path] = []
@@ -217,9 +303,6 @@ def classify_folder(
             best_prob = image_probs[best_idx].item()
 
             # Only assign a category if confidence exceeds threshold
-            if best_prob >= threshold:
-                results[str(path)] = labels[best_idx]
-            else:  # image doesn't clearly match any category
-                results[str(path)] = None
+            results[path] = labels[best_idx] if best_prob >= threshold else None
 
     return results
