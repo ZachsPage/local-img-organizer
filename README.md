@@ -58,7 +58,7 @@ uv run main.py
 # Type check
 uv run mypy src/
 # Lint & format
-uv run ruff check && uv run ruff format
+uv run ruff format && uv run ruff check
 # Fix linting
 uv run ruff check --fix
 # Run all tests

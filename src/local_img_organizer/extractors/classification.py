@@ -32,6 +32,7 @@ class Classification(Extractor):
     @dataclass
     class Cfg:
         """Extractor config"""
+
         categories_to_ops: dict[str, Operation]
         threshold: float = 0.95  # want to be very certain
         device: Literal["cuda", "cpu"] = "cuda"  # use GPU
@@ -45,7 +46,7 @@ class Classification(Extractor):
         cfg = self.cfg
         _log.info(f"Loading model using {cfg.device}...")
         model, processor = _load_model(cfg.device)
-        categories = cfg.categories_to_ops.keys()
+        categories = list(cfg.categories_to_ops.keys())
         _log.info(f"Classifying images into {len(categories)} categories: {categories}...")
         start_ns = time.time_ns()
         path_to_cats = _classify_folder(
@@ -64,16 +65,12 @@ class Classification(Extractor):
             self._debug(path_to_cats)
             return
         for path, category in path_to_cats.items():
+            if category is None:
+                continue
             op = cfg.categories_to_ops[category]
-            # TODO - right now the op takes in the ext_data, but that makes ops dependent on extractors,
-            # even though extractors run the ops.  Think this interface is right from the config - 
-            # so maybe just need to remove ext_data? The og. idea was that its how the extractor
-            # data makes it into the journal entry... so maybe an alternative way, or at least 
-            # add to the docstring that the data should not be used directly - maybe just dont pass
-            # into Data?
-            yield op.prepare(Operation.Data(src=path, is_dry=is_dry, ext_data={"category": category}))
-        # TODO - set up passing Operation.Data.ext_data: ExtOut to the op generator
-        # TODO - handle is_dry - still need to run classification
+            yield op.prepare(
+                Operation.Data(src=path, is_dry=is_dry), ext_data={"category": category}
+            )
 
     def _debug(self, path_to_cats: ImgToClass) -> None:
         """Interactively display images grouped by category for manual verification"""
