@@ -18,6 +18,7 @@
     * `Cfg.from_file()` returns `list[Extractor]` ready for `run_all`
 * Implement CSV journal
 * Implement undos using journal
+    * Ensure all undos are valid before running any of them to maintain state
 * Fixes from more testing - dry-run, run, undo, edge cases
 * `extractor` - `metadata`
 * `operation` - `rename`

@@ -3,10 +3,9 @@
 import argparse
 from pathlib import Path
 
-from local_img_organizer import Cfg
-
-# TODO - maybe change the naming schema here to end in Ext & Op?
-from local_img_organizer.extractors.classification import Classification
+from local_img_organizer.config import parse_extractors
+from local_img_organizer.interfaces import run_all
+from local_img_organizer.journals.print_journal import PrintJournal
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,9 +21,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-c", "--cfg", type=Path, required=True, help="Input yaml config")
     parser.add_argument(
         "-d",
-        "--debug",
+        "--dry-run",
         action="store_true",
-        help="Will interactively debug classifications",
+        help="Plan / journal operations without executing them",
     )
     return parser.parse_args()
 
@@ -32,16 +31,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Run extractors & operations for all images"""
     args = parse_args()
-    cfg = Cfg.from_file(args.cfg)
-    if not cfg.class_cats:
-        raise RuntimeError("No classification categories configured")
-    Classification(
-        ops=[],
-        cfg=Classification.Cfg(
-            categories=cfg.class_cats,
-            debug=args.debug,
-        ),
-    ).run(Path(args.input_dir), is_dry=True)
+    run_all(args.input_dir, PrintJournal(), parse_extractors(args.cfg), is_dry=args.dry_run)
 
 
 if __name__ == "__main__":

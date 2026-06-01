@@ -6,7 +6,7 @@ from typing import ClassVar, override
 
 import pytest
 
-from local_img_organizer.interfaces import Extractor, Journal, Operation, Operations, OpOut, run_all
+from local_img_organizer.interfaces import Extractor, Journal, Operation, OpOut, run_all
 
 _log = logging.getLogger(__name__)
 
@@ -26,7 +26,8 @@ class StubJournal(Journal):
 
 
 class StubOperation(Operation):
-    op_type = Operations.RENAME
+    class Cfg(Operation.Cfg):
+        pass
 
     @override
     def plan(self, data: Operation.Data) -> OpOut:
@@ -41,7 +42,12 @@ class StubOperation(Operation):
         _log.info("would undo %s -> %s", og_out["to"], og_out["from"])
 
 
+@dataclass
 class StubExtractor(Extractor):
+    class Cfg(Extractor.Cfg):
+        pass
+
+    ops: list[Operation] = field(default_factory=list)
     label: ClassVar[str] = "test_ext_label"
 
     @override
@@ -68,21 +74,21 @@ def test_run_all(tmp_path):
 
     # Verify entry data
     for entry in entries:
-        assert entry.op == Operations.RENAME
+        assert entry.op == "stuboperation"
         assert entry.src in files
-        assert entry.op_in == {"label": StubExtractor.label}
+        assert entry.ext_out == {"label": StubExtractor.label}
         assert entry.op_out == {"from": str(entry.src), "to": f"{entry.src}_renamed"}
 
     # Verify undo
     for entry in entries:
         undo_entry = op.prepare_undo(entry)()
-        assert undo_entry.op == Operations.RENAME
+        assert undo_entry.op == "stuboperation"
         assert undo_entry.op_out == entry.op_out
 
 
-def test_bad_op_no_name():
-    """Test catching if a new Operation does not define op_type"""
-    with pytest.raises(TypeError, match="must define op_type"):
+def test_bad_op_no_cfg():
+    """Test catching if a new Operation does not define a Cfg inner class"""
+    with pytest.raises(TypeError, match="must define a Cfg"):
 
         class BadOperation(Operation):
             pass
@@ -92,7 +98,8 @@ def test_bad_op_run():
     """Test avoiding bubbling up operation exceptions, but ensure they are journaled"""
 
     class FailingOp(Operation):
-        op_type = Operations.RENAME
+        class Cfg(Operation.Cfg):
+            pass
 
         @override
         def plan(self, data: Operation.Data) -> OpOut:

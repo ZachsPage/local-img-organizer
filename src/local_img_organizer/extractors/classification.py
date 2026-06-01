@@ -6,12 +6,14 @@ from collections import defaultdict
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, override
+from typing import Any, Literal, override
 
 import torch
 from PIL import Image
+from pydantic import field_validator
 from transformers import CLIPModel, CLIPProcessor
 
+from local_img_organizer.config import parse_operations
 from local_img_organizer.interfaces import Extractor, Journal, Operation
 from local_img_organizer.utils import get_logger
 
@@ -24,29 +26,43 @@ type ImgToClass = dict[Path, str | None]
 class Classification(Extractor):
     """Extracts image classifications to be used in Operations"""
 
-    # TODO - need to have a util to get this from the config easily - want each
-    # extractor / op to manage its own config that the top config maps in
-    # - Also, want to assign default values here, and only change them if
-    #   the yaml sets a value
+    class Cfg(Extractor.Cfg):
+        """Classification extractor configuration"""
 
-    @dataclass
-    class Cfg:
-        """Extractor config"""
-
-        categories_to_ops: dict[str, Operation]
-        threshold: float = 0.95  # want to be very certain
-        device: Literal["cuda", "cpu"] = "cuda"  # use GPU
+        categories: dict[str, list[dict[str, Any]]]
+        threshold: float = 0.95
+        device: Literal["cuda", "cpu"] = "cuda"
         batch_size: int = 16
         debug: bool = False
 
+        @field_validator("categories", mode="before")
+        @classmethod
+        def _flatten_categories(cls, v: Any) -> Any:  # noqa: ANN401
+            """YAML represents categories as a list-of-dicts; flatten to a single dict"""
+            if isinstance(v, list):
+                result: dict[str, Any] = {}
+                for item in v:
+                    if isinstance(item, dict):
+                        result.update(item)
+                return result
+            return v
+
     cfg: Cfg
+    categories_to_ops: dict[str, list[Operation]]
+
+    @classmethod
+    def from_cfg(cls, data: dict[str, Any]) -> "Classification":
+        """Build a Classification extractor from raw YAML config data"""
+        cfg = cls.Cfg.model_validate(data)
+        cats_to_ops = {cat: parse_operations(op_list) for cat, op_list in cfg.categories.items()}
+        return cls(cfg=cfg, categories_to_ops=cats_to_ops)
 
     @override
     def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
         cfg = self.cfg
         _log.info(f"Loading model using {cfg.device}...")
         model, processor = _load_model(cfg.device)
-        categories = list(cfg.categories_to_ops.keys())
+        categories = list(self.categories_to_ops.keys())
         _log.info(f"Classifying images into {len(categories)} categories: {categories}...")
         start_ns = time.time_ns()
         path_to_cats = _classify_folder(
@@ -67,10 +83,10 @@ class Classification(Extractor):
         for path, category in path_to_cats.items():
             if category is None:
                 continue
-            op = cfg.categories_to_ops[category]
-            yield op.prepare(
-                Operation.Data(src=path, is_dry=is_dry), ext_data={"category": category}
-            )
+            for op in self.categories_to_ops[category]:
+                yield op.prepare(
+                    Operation.Data(src=path, is_dry=is_dry), ext_data={"category": category}
+                )
 
     def _debug(self, path_to_cats: ImgToClass) -> None:
         """Interactively display images grouped by category for manual verification"""
