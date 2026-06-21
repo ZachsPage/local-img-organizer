@@ -4,18 +4,22 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict
 
+from local_img_organizer.utils import defer_exceptions, import_cls
+
 _log = logging.getLogger(__name__)
 
 
 type ExtOut = dict[str, Any]  # Indicates what the extractor found
-type OpOut = dict[str, Any]  # Indicates what the op
+type OpOut = dict[str, Any]  # Indicates what the op will do
 
 
+@dataclass
 class Journal(ABC):
     """Journal to track what has been done for debugging & undoing"""
 
@@ -32,9 +36,13 @@ class Journal(ABC):
     def log(self, entry: Entry) -> None:
         """Write out the entry"""
 
+    def get_files_for_undo(self) -> list[Path]:
+        """Return journal files available for undo"""
+        return []
+
     @abstractmethod
-    def read(self) -> Generator[Entry]:
-        """Return each entry"""
+    def read(self, source: Path | None = None) -> Generator[Entry]:
+        """Return each entry; source selects a specific file"""
 
 
 class CfgModel(BaseModel):
@@ -75,18 +83,25 @@ class Operation(ABC):
 
     @abstractmethod
     def plan(self, data: Data) -> OpOut:
-        """Compute and return what this operation would do"""
+        """Compute and return what this operation will do - raise if invalid"""
 
     @abstractmethod
     def run(self, data: Data, planned: OpOut) -> None:
         """Execute the planned operation's side effects"""
 
+    @classmethod
     @abstractmethod
-    def undo(self, og_data: Data, og_planned: OpOut) -> None:
+    def can_undo(cls, entry: Journal.Entry) -> None:
+        """Raise with a reason if this entry's undo is invalid - ex. missing files"""
+
+    @classmethod
+    @abstractmethod
+    def undo(cls, og_data: Data, og_planned: OpOut) -> None:
         """Reverse a previously executed operation"""
 
+    @classmethod
     def _safe(
-        self,
+        cls,
         action: Callable[[], None],
         data: Data,
         planned: OpOut,
@@ -95,7 +110,7 @@ class Operation(ABC):
         try:
             action()
         except Exception as ex:  # noqa: BLE001
-            _log.exception(f"Error for {type(self).__name__} - in: {data}, out: {ex}")
+            _log.exception(f"Error for {cls.__name__} - in: {data}, out: {ex}")
             return {"error": str(ex)}
         return planned
 
@@ -118,19 +133,21 @@ class Operation(ABC):
 
         return run_get_entry
 
-    # TODO: Need a top-level run_undo() to mirror run_all() — reads a run journal, calls
-    # prepare_undo(entry) for each entry, logs results to a separate undo journal.
-    # The journal stays agnostic (just sees log(entry) calls either way); the CLI owns the
-    # distinction between run and undo journals. No redo needed — re-running the original
-    # operation from scratch is equivalent.
-    def prepare_undo(self, entry: Journal.Entry) -> Callable[[], Journal.Entry]:
+    @classmethod
+    def prepare_undo(
+        cls, entry: Journal.Entry, *, is_dry: bool = False
+    ) -> Callable[[], Journal.Entry]:
         """Return callable that will undo a previously journaled operation"""
 
         def undo_get_entry() -> Journal.Entry:
-            og_data = Operation.Data(src=entry.src, is_dry=False)
-            op_out = self._safe(lambda: self.undo(og_data, entry.op_out), og_data, entry.op_out)
+            og_data = Operation.Data(src=entry.src, is_dry=is_dry)
+            op_out = (
+                entry.op_out
+                if is_dry
+                else cls._safe(lambda: cls.undo(og_data, entry.op_out), og_data, entry.op_out)
+            )
             return Journal.Entry(
-                op=type(self).__name__.lower(),
+                op=entry.op,
                 src=entry.src,
                 ext_out=entry.ext_out,
                 op_out=op_out,
@@ -159,7 +176,7 @@ class Extractor(ABC):
         """
 
 
-def run_all(
+def run_ops(
     img_dir: Path,
     journal: Journal,
     extractors: list[Extractor],
@@ -174,6 +191,40 @@ def run_all(
     """
     if not extractors:
         raise RuntimeError("No extractors configured")
+    # Resolve to absolute so journaled entries (src, and any op-specific paths derived from it,
+    # ex. Move's dest) remain valid for undo regardless of the cwd at undo time.
+    img_dir = img_dir.resolve()
     for ext in extractors:
         for op in ext.run(img_dir, is_dry=is_dry):
             journal.log(op())
+
+
+def run_undos(
+    journal: Journal,
+    *,
+    source: Path | None,
+    is_dry: bool = False,
+) -> None:
+    """Top level function to validate / run undos
+    :param journal: Journal to read undo source from and log undo results to
+    :param source: Specific journal file to undo; if None, user is prompted to select from available
+    :param is_dry: Plan undos without executing them
+    """
+    if not source:
+        options = journal.get_files_for_undo()
+        if not options:
+            raise RuntimeError("No journal files available to undo")
+        for i, f in enumerate(options):
+            print(f"  [{i}] {f.name}")
+        source = options[int(input("Select journal to undo: "))]
+
+    entries = list(journal.read(source))
+
+    def check(entry: Journal.Entry) -> None:
+        import_cls(f"local_img_organizer.ops.{entry.op}", entry.op, kind="op").can_undo(entry)
+
+    defer_exceptions([partial(check, entry) for entry in entries])
+
+    for entry in entries:
+        op_cls = import_cls(f"local_img_organizer.ops.{entry.op}", entry.op, kind="op")
+        journal.log(op_cls.prepare_undo(entry, is_dry=is_dry)())
