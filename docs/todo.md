@@ -10,16 +10,25 @@
     * Add test coverage report - done
 * `extractor` - `classification` - done
 * Revisit interface - done
-* Generic config parsing
+* Generic config parsing - done
     * Replace `Classification.Cfg` dataclass with Pydantic `BaseModel`
     * Add `OpCfg` discriminated union in `config.py` (`MoveCfg`, etc.) keyed on `op:` field
     * Rewrite `ClassificationConfig` to `categories: dict[str, list[OpCfg]]`
     * Add `build() -> Classification` on `ClassificationConfig` — instantiates real `Operation` objects
     * `Cfg.from_file()` returns `list[Extractor]` ready for `run_all`
-* Implement CSV journal
-* Implement undos using journal
-    * Ensure all undos are valid before running any of them to maintain state
+* Implement CSV journal - done
+    * Consider new interfaces - done
+        * Creation to write to a specific directory - done, `CSVJournal(journal_dir=...)`
+        * Filenames - should be in order of execution time - done, `journal_{UTC timestamp}.csv`
+        * How to list all journals for optional undo - done, `get_files_for_undo()`
+        * Storing metadata? Or are file paths always absolute? - done, `run_ops` resolves
+          `img_dir` to absolute so journaled paths (and anything ops derive from them, ex.
+          Move's `dest`) are undo-safe regardless of cwd at undo time
+* Implement undos using journal - done
+    * Ensure all undos are valid before running any of them to maintain state - done, `can_undo`
+      is checked for every entry via `defer_exceptions` before any entry is undone
 * Fixes from more testing - dry-run, run, undo, edge cases
+  * Wire up `run_undos` in `main.py` (currently only reachable programmatically)
 * `extractor` - `metadata`
 * `operation` - `rename`
 * `operation` - `tag`

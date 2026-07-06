@@ -6,7 +6,7 @@ from typing import ClassVar, override
 
 import pytest
 
-from local_img_organizer.interfaces import Extractor, Journal, Operation, OpOut, run_all
+from local_img_organizer.interfaces import Extractor, Journal, Operation, OpOut, run_ops, run_undos
 
 _log = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class StubJournal(Journal):
         self.entries.append(entry)
 
     @override
-    def read(self) -> Generator[Journal.Entry]:
+    def read(self, source: Path | None = None) -> Generator[Journal.Entry]:
         yield from self.entries
 
 
@@ -37,8 +37,14 @@ class StubOperation(Operation):
     def run(self, data: Operation.Data, planned: OpOut) -> None:
         _log.info("would rename %s -> %s", planned["from"], planned["to"])
 
+    @classmethod
     @override
-    def undo(self, og_data: Operation.Data, og_out: OpOut) -> None:
+    def can_undo(cls, entry: Journal.Entry) -> None:
+        pass
+
+    @classmethod
+    @override
+    def undo(cls, og_data: Operation.Data, og_out: OpOut) -> None:
         _log.info("would undo %s -> %s", og_out["to"], og_out["from"])
 
 
@@ -58,15 +64,15 @@ class StubExtractor(Extractor):
                 yield op.prepare(data, ext_data={"label": self.label})
 
 
-def test_run_all(tmp_path):
-    """Test set up & running run_all"""
+def test_run_ops(tmp_path):
+    """Test set up & running run_ops"""
     files = [tmp_path / f"test_file_{i}.png" for i in range(5)]
     for f in files:
         f.touch()
 
     journal = StubJournal()
     op = StubOperation()
-    run_all(tmp_path, journal, [StubExtractor(ops=[op])])
+    run_ops(tmp_path, journal, [StubExtractor(ops=[op])])
     entries = list(journal.read())
 
     # Verify all files were processed
@@ -84,6 +90,22 @@ def test_run_all(tmp_path):
         undo_entry = op.prepare_undo(entry)()
         assert undo_entry.op == "stuboperation"
         assert undo_entry.op_out == entry.op_out
+
+
+def test_run_ops_resolves_relative_img_dir(tmp_path, monkeypatch):
+    """Test run_ops resolves a relative img_dir so journaled entries carry absolute paths"""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "test_file.png").touch()
+    monkeypatch.chdir(tmp_path)
+
+    journal = StubJournal()
+    op = StubOperation()
+    run_ops(Path("sub"), journal, [StubExtractor(ops=[op])])
+    entries = list(journal.read())
+
+    assert len(entries) == 1
+    assert entries[0].src.is_absolute()
+    assert entries[0].src == tmp_path / "sub" / "test_file.png"
 
 
 def test_bad_op_no_cfg():
@@ -110,8 +132,14 @@ def test_bad_op_run():
             msg = "something went wrong"
             raise RuntimeError(msg)
 
+        @classmethod
         @override
-        def undo(self, og_data: Operation.Data, og_out: OpOut) -> None:
+        def can_undo(cls, entry: Journal.Entry) -> None:
+            pass
+
+        @classmethod
+        @override
+        def undo(cls, og_data: Operation.Data, og_out: OpOut) -> None:
             pass
 
     data = Operation.Data(src=Path("fake.png"), is_dry=False)
@@ -119,3 +147,81 @@ def test_bad_op_run():
 
     # Verify error was captured, not raised
     assert entry.op_out == {"error": "something went wrong"}
+
+
+# run_undos resolves op classes dynamically via `local_img_organizer.ops.<entry.op>`, so these
+# tests use the real "move" op rather than a test-local stub.
+
+
+def test_run_undos_collects_all_invalid_entries(tmp_path):
+    """Test run_undos validates every entry before raising, collecting all failure reasons
+    together (rather than stopping at the first bad entry) - this is what defer_exceptions buys us
+    """
+    blocked_src = tmp_path / "already_here.png"
+    blocked_src.touch()  # src already exists -> Move.can_undo rejects it
+    entries = [
+        Journal.Entry(
+            op="move",
+            src=blocked_src,
+            ext_out={},
+            op_out={"dest": str(tmp_path / "cats" / "already_here.png")},
+        ),
+        Journal.Entry(op="bogus_op", src=tmp_path / "other.png", ext_out={}, op_out={}),
+    ]
+    journal = StubJournal(entries=list(entries))
+
+    with pytest.raises(RuntimeError) as exc_info:
+        run_undos(journal, source=Path("unused"))
+
+    message = str(exc_info.value)
+    assert "already exists" in message
+    assert "Unknown op: 'bogus_op'" in message
+    # Neither entry was valid, so nothing should have been undone or logged
+    assert journal.entries == entries
+
+
+def test_run_undos_undoes_valid_entries(tmp_path):
+    """Test run_undos executes the undo for each valid entry and logs the result"""
+    dest = tmp_path / "cats" / "a.png"
+    dest.parent.mkdir()
+    dest.touch()
+    src = tmp_path / "a.png"
+
+    entry = Journal.Entry(
+        op="move", src=src, ext_out={"category": "cats"}, op_out={"dest": str(dest)}
+    )
+    journal = StubJournal(entries=[entry])
+    before = len(journal.entries)
+
+    run_undos(journal, source=Path("unused"))
+
+    assert src.exists()
+    assert not dest.exists()
+    assert len(journal.entries) == before + 1
+    undo_entry = journal.entries[-1]
+    assert undo_entry.op == "move"
+    assert undo_entry.op_out == {"dest": str(dest)}
+
+
+def test_run_undos_dry_run_does_not_execute(tmp_path):
+    """Test run_undos in dry mode validates & logs but does not actually move any files"""
+    dest = tmp_path / "cats" / "a.png"
+    dest.parent.mkdir()
+    dest.touch()
+    src = tmp_path / "a.png"
+
+    entry = Journal.Entry(op="move", src=src, ext_out={}, op_out={"dest": str(dest)})
+    journal = StubJournal(entries=[entry])
+
+    run_undos(journal, source=Path("unused"), is_dry=True)
+
+    assert not src.exists()
+    assert dest.exists()
+    assert journal.entries[-1].op_out == entry.op_out
+
+
+def test_run_undos_no_journal_files():
+    """Test run_undos raises if no source is given and no journal files are available"""
+    journal = StubJournal()
+    with pytest.raises(RuntimeError, match="No journal files available"):
+        run_undos(journal, source=None)

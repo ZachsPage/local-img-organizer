@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
-from local_img_organizer.interfaces import Operation, OpOut
+from local_img_organizer.interfaces import Journal, Operation, OpOut
 
 type _Data = Operation.Data
 
@@ -22,26 +22,38 @@ class Move(Operation):
 
     @override
     def plan(self, data: _Data) -> OpOut:
-        """Compute and return what this operation would do"""
         if not data.src.is_file():
             raise ValueError(f"{data.src} is not a file")
         if data.src.parent.name == self.cfg.subdir_name:
             return {}
         dest = data.src.parent / self.cfg.subdir_name / data.src.name
+        if dest.exists():
+            raise ValueError(f"Dest {dest} already exists?")
         return {"dest": str(dest)}
 
     @override
     def run(self, data: _Data, planned: OpOut) -> None:
-        """Execute the planned operation's side effects"""
         if not planned:
             return
         dest = Path(planned["dest"])
         dest.parent.mkdir(parents=True, exist_ok=True)
         data.src.rename(dest)
 
+    @classmethod
     @override
-    def undo(self, og_data: _Data, og_planned: OpOut) -> None:
-        """Reverse a previously executed operation"""
-        if not og_planned:
+    def can_undo(cls, entry: Journal.Entry) -> None:
+        dest = entry.op_out.get("dest")
+        if not dest:
             return
-        Path(og_planned["dest"]).rename(og_data.src)
+        if Path(entry.src).exists():
+            raise ValueError(f"{entry.src}: already exists, undo would overwrite it")
+        if not Path(dest).exists():
+            raise ValueError(f"{entry.src}: dest {dest} is missing, cannot undo move")
+
+    @classmethod
+    @override
+    def undo(cls, og_data: _Data, og_planned: OpOut) -> None:
+        dest = og_planned.get("dest")
+        if not dest:
+            return
+        Path(dest).rename(og_data.src)
