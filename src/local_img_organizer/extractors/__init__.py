@@ -1,1 +1,0 @@
-"""Concrete Extractor implementations."""

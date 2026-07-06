@@ -1,51 +1,38 @@
 """Configuration"""
 
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+
+from local_img_organizer.interfaces import Extractor, Operation
 
 
-class ClassificationConfig(BaseModel):
-    """Configuration for image classification"""
+def parse_extractors(cfg_file: Path) -> list[Extractor]:
+    """Parse YAML config and return ready-to-run Extractor instances"""
+    with Path.open(cfg_file) as f:
+        data = yaml.safe_load(f)
+    result: list[Extractor] = []
+    for name, ext_data in (data.get("extractors") or {}).items():
+        try:
+            mod = import_module(f"local_img_organizer.extractors.{name}")
+            ext_cls = getattr(mod, name.capitalize())
+        except (ModuleNotFoundError, AttributeError):
+            raise ValueError(f"Unknown extractor: {name!r}") from None
+        result.append(ext_cls.from_cfg(ext_data or {}))
+    return result
 
-    categories: list[dict[str, Any]]  # Each item: {category_string: [operations]}
 
-
-class ExtractorsConfig(BaseModel):
-    """Container for all extractor configurations"""
-
-    classification: ClassificationConfig | None = None
-
-
-class Cfg(BaseModel):
-    """Main configuration model"""
-
-    extractors: ExtractorsConfig
-
-    @classmethod
-    def from_file(cls, cfg_file: Path) -> "Cfg":
-        """Return validated configuration from YAML file"""
-        with Path.open(cfg_file) as f:
-            data = yaml.safe_load(f)
-        return cls.model_validate(data)
-
-    @property
-    def class_cats(self) -> list[str]:
-        """Return configured image classification category strings"""
-        if self.extractors.classification:
-            cats: list[str] = []
-            for item in self.extractors.classification.categories:
-                if isinstance(item, dict):
-                    # Extract the category string (dict key)
-                    cats.extend(item.keys())
-            return cats
-        return []
-
-    # TODO: Need a way to look up which Operations are configured for a matched category,
-    # so the classification Extractor can call the right ops per image. Currently the config
-    # only exposes category strings (class_cats), not the category→op mapping. Options:
-    # - Add a method here that returns {category_str: [Operation]} built from the YAML ops list
-    # - Let the Extractor filter (feels like the wrong layer — config owns the mapping)
-    # - Decide whether one image can match multiple categories / trigger multiple ops
+def parse_operations(op_list: list[dict[str, Any]]) -> list[Operation]:
+    """Build Operation instances from a list of raw YAML op dicts"""
+    ops: list[Operation] = []
+    for op_data in op_list:
+        op_name = op_data["op"]
+        try:
+            mod = import_module(f"local_img_organizer.ops.{op_name}")
+            op_cls = getattr(mod, op_name.capitalize())
+        except (ModuleNotFoundError, AttributeError):
+            raise ValueError(f"Unknown op: {op_name!r}") from None
+        ops.append(op_cls.from_cfg(op_data))
+    return ops
