@@ -15,7 +15,7 @@ from transformers import CLIPModel, CLIPProcessor
 
 from local_img_organizer.config import parse_operations
 from local_img_organizer.interfaces import Extractor, Journal, Operation
-from local_img_organizer.utils import get_logger
+from local_img_organizer.utils import find_images, get_logger
 
 _log = get_logger(__name__)
 
@@ -190,11 +190,7 @@ def _classify_folder(
 
     """
     # Find all common image files in the folder
-    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.bmp"]
-    image_paths: list[Path] = []
-    for ext in image_extensions:
-        image_paths.extend(folder.glob(ext))
-        image_paths.extend(folder.glob(ext.upper()))  # ex. .JPG
+    image_paths = find_images(folder)
 
     if not image_paths:
         return {}

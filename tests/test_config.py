@@ -7,23 +7,28 @@ import pytest
 
 from local_img_organizer.config import parse_extractors
 from local_img_organizer.extractors.classification import Classification
+from local_img_organizer.extractors.metadata import Metadata
 from local_img_organizer.ops.move import Move
 
 _EXAMPLE_CFG = Path(__file__).parent.parent / "config" / "example_cfg.yaml"
 
 
+def _example_classification() -> Classification:
+    """Return the Classification extractor built from the example config"""
+    found = [e for e in parse_extractors(_EXAMPLE_CFG) if isinstance(e, Classification)]
+    assert len(found) == 1
+    return found[0]
+
+
 def test_example_config_loads() -> None:
     """parse_extractors parses example_cfg.yaml into ready-to-run extractors"""
     extractors = parse_extractors(_EXAMPLE_CFG)
-    assert len(extractors) == 1
-    ext = extractors[0]
-    assert isinstance(ext, Classification)
+    assert [type(e) for e in extractors] == [Classification, Metadata]
 
 
 def test_example_config_categories() -> None:
     """Classification extractor has the expected categories and Move ops"""
-    ext = parse_extractors(_EXAMPLE_CFG)[0]
-    assert isinstance(ext, Classification)
+    ext = _example_classification()
     assert "a recipe or cooking instructions" in ext.categories_to_ops
     assert "a receipt, bill, or document" in ext.categories_to_ops
     for ops in ext.categories_to_ops.values():
@@ -33,9 +38,7 @@ def test_example_config_categories() -> None:
 
 def test_move_cfg_subdir_name() -> None:
     """Move ops carry the subdir_name from the YAML"""
-    ext = parse_extractors(_EXAMPLE_CFG)[0]
-    assert isinstance(ext, Classification)
-    recipe_op = ext.categories_to_ops["a recipe or cooking instructions"][0]
+    recipe_op = _example_classification().categories_to_ops["a recipe or cooking instructions"][0]
     assert isinstance(recipe_op, Move)
     assert recipe_op.cfg.subdir_name == "recipes"
 

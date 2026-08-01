@@ -20,7 +20,7 @@ extractors:
       #   - op: tag
       #     name: type
       #     value: indoor
-  # TODO: metadata extractor not yet implemented
-  # metadata:
-  #   # Adding this extractor will show the metadata in the journal, even if
-  #   # no operations are set up
+  metadata:
+    # Extracts date_taken / file_modified / gps / location - with no operations set up every
+    # image runs `noop`, so the metadata still shows up in the journal
+    lookup_location: true # turn any gps found into a city / state / country
