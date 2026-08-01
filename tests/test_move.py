@@ -7,7 +7,7 @@ from local_img_organizer.ops.move import Move
 
 
 def _entry(src: Path, op_out: dict) -> Journal.Entry:
-    return Journal.Entry(op="move", src=src, ext_out={}, op_out=op_out)
+    return Journal.Entry(op="move", src=src, ext_out={}, op_out=op_out, is_dry=False)
 
 
 def test_plan_not_a_file(tmp_path):

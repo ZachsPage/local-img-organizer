@@ -19,7 +19,8 @@
 * Implement CSV journal - done
     * Consider new interfaces - done
         * Creation to write to a specific directory - done, `CSVJournal(journal_dir=...)`
-        * Filenames - should be in order of execution time - done, `journal_{UTC timestamp}.csv`
+        * Filenames - should be in order of execution time - done,
+          `local_img_org_journal_{UTC timestamp}.csv`
         * How to list all journals for optional undo - done, `get_files_for_undo()`
         * Storing metadata? Or are file paths always absolute? - done, `run_ops` resolves
           `img_dir` to absolute so journaled paths (and anything ops derive from them, ex.
@@ -28,7 +29,7 @@
     * Ensure all undos are valid before running any of them to maintain state - done, `can_undo`
       is checked for every entry via `defer_exceptions` before any entry is undone
 * Fixes from more testing - dry-run, run, undo, edge cases
-  * Wire up `run_undos` in `main.py` (currently only reachable programmatically)
+  * Wire up `run_undos` in `main.py` - done, `--undo` flag
 * `extractor` - `metadata`
 * `operation` - `rename`
 * `operation` - `tag`

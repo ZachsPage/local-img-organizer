@@ -44,8 +44,9 @@ class StubOperation(Operation):
 
     @classmethod
     @override
-    def undo(cls, og_data: Operation.Data, og_out: OpOut) -> None:
+    def undo(cls, og_data: Operation.Data, og_out: OpOut) -> OpOut:
         _log.info("would undo %s -> %s", og_out["to"], og_out["from"])
+        return {"from": og_out["to"], "to": og_out["from"]}
 
 
 @dataclass
@@ -84,12 +85,26 @@ def test_run_ops(tmp_path):
         assert entry.src in files
         assert entry.ext_out == {"label": StubExtractor.label}
         assert entry.op_out == {"from": str(entry.src), "to": f"{entry.src}_renamed"}
+        assert entry.is_dry is False
 
-    # Verify undo
+    # Verify undo - op_out should reflect the reversal, not just echo the original entry
     for entry in entries:
         undo_entry = op.prepare_undo(entry)()
         assert undo_entry.op == "stuboperation"
-        assert undo_entry.op_out == entry.op_out
+        assert undo_entry.op_out == {"from": entry.op_out["to"], "to": entry.op_out["from"]}
+
+
+def test_run_ops_dry_run_tags_entries(tmp_path):
+    """Test entries produced during a dry run are tagged is_dry so they can't be undone later"""
+    (tmp_path / "test_file.png").touch()
+
+    journal = StubJournal()
+    op = StubOperation()
+    run_ops(tmp_path, journal, [StubExtractor(ops=[op])], is_dry=True)
+    entries = list(journal.read())
+
+    assert len(entries) == 1
+    assert entries[0].is_dry is True
 
 
 def test_run_ops_resolves_relative_img_dir(tmp_path, monkeypatch):
@@ -139,8 +154,8 @@ def test_bad_op_run():
 
         @classmethod
         @override
-        def undo(cls, og_data: Operation.Data, og_out: OpOut) -> None:
-            pass
+        def undo(cls, og_data: Operation.Data, og_out: OpOut) -> OpOut:
+            return {}
 
     data = Operation.Data(src=Path("fake.png"), is_dry=False)
     entry = FailingOp().prepare(data, ext_data={"label": "x"})()
@@ -165,8 +180,11 @@ def test_run_undos_collects_all_invalid_entries(tmp_path):
             src=blocked_src,
             ext_out={},
             op_out={"dest": str(tmp_path / "cats" / "already_here.png")},
+            is_dry=False,
         ),
-        Journal.Entry(op="bogus_op", src=tmp_path / "other.png", ext_out={}, op_out={}),
+        Journal.Entry(
+            op="bogus_op", src=tmp_path / "other.png", ext_out={}, op_out={}, is_dry=False
+        ),
     ]
     journal = StubJournal(entries=list(entries))
 
@@ -180,6 +198,24 @@ def test_run_undos_collects_all_invalid_entries(tmp_path):
     assert journal.entries == entries
 
 
+def test_run_undos_rejects_dry_run_entry(tmp_path):
+    """Test run_undos refuses to undo an entry that was only planned, never executed"""
+    entry = Journal.Entry(
+        op="move",
+        src=tmp_path / "a.png",
+        ext_out={},
+        op_out={"dest": str(tmp_path / "cats" / "a.png")},
+        is_dry=True,
+    )
+    journal = StubJournal(entries=[entry])
+
+    with pytest.raises(RuntimeError, match="dry run"):
+        run_undos(journal, source=Path("unused"))
+
+    # Nothing should have been undone or logged
+    assert journal.entries == [entry]
+
+
 def test_run_undos_undoes_valid_entries(tmp_path):
     """Test run_undos executes the undo for each valid entry and logs the result"""
     dest = tmp_path / "cats" / "a.png"
@@ -188,7 +224,7 @@ def test_run_undos_undoes_valid_entries(tmp_path):
     src = tmp_path / "a.png"
 
     entry = Journal.Entry(
-        op="move", src=src, ext_out={"category": "cats"}, op_out={"dest": str(dest)}
+        op="move", src=src, ext_out={"category": "cats"}, op_out={"dest": str(dest)}, is_dry=False
     )
     journal = StubJournal(entries=[entry])
     before = len(journal.entries)
@@ -200,7 +236,8 @@ def test_run_undos_undoes_valid_entries(tmp_path):
     assert len(journal.entries) == before + 1
     undo_entry = journal.entries[-1]
     assert undo_entry.op == "move"
-    assert undo_entry.op_out == {"dest": str(dest)}
+    # op_out should reflect where the file actually ended up (src), not echo the original entry
+    assert undo_entry.op_out == {"dest": str(src)}
 
 
 def test_run_undos_dry_run_does_not_execute(tmp_path):
@@ -210,7 +247,7 @@ def test_run_undos_dry_run_does_not_execute(tmp_path):
     dest.touch()
     src = tmp_path / "a.png"
 
-    entry = Journal.Entry(op="move", src=src, ext_out={}, op_out={"dest": str(dest)})
+    entry = Journal.Entry(op="move", src=src, ext_out={}, op_out={"dest": str(dest)}, is_dry=False)
     journal = StubJournal(entries=[entry])
 
     run_undos(journal, source=Path("unused"), is_dry=True)

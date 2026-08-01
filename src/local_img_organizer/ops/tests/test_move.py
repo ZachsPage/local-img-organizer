@@ -28,10 +28,38 @@ def test_roundtrip(tmp_path: Path) -> None:
     op.run(data_in, plan)
     assert exp_dest.exists()
     assert not src.exists()
-    # Verify move is undone
-    op.undo(data_in, plan)
+    # Verify move is undone, and undo reports the file's real post-undo location
+    undo_out = op.undo(data_in, plan)
     assert not exp_dest.exists()
     assert src.exists()
+    assert undo_out == {"dest": str(src)}
+
+
+def test_undo_removes_emptied_subdir(tmp_path: Path) -> None:
+    """Verify undo deletes the subdir it moved into if undo leaves it empty"""
+    src = tmp_path / "test.png"
+    src.touch()
+    op = _move("subdir")
+    data_in = Move.Data(src=src, is_dry=False)
+    plan = op.plan(data_in)
+    subdir = Path(plan["dest"]).parent
+    op.run(data_in, plan)
+    op.undo(data_in, plan)
+    assert not subdir.exists()
+
+
+def test_undo_keeps_nonempty_subdir(tmp_path: Path) -> None:
+    """Verify undo leaves the subdir if other files remain in it"""
+    src = tmp_path / "test.png"
+    src.touch()
+    op = _move("subdir")
+    data_in = Move.Data(src=src, is_dry=False)
+    plan = op.plan(data_in)
+    subdir = Path(plan["dest"]).parent
+    op.run(data_in, plan)
+    (subdir / "other.png").touch()
+    op.undo(data_in, plan)
+    assert subdir.exists()
 
 
 def test_noop(tmp_path: Path) -> None:
@@ -46,7 +74,7 @@ def test_noop(tmp_path: Path) -> None:
     plan = op.plan(data_in)
     assert not plan
     op.run(data_in, plan)
-    op.undo(data_in, plan)
+    assert op.undo(data_in, plan) == {}
 
 
 def test_failures(tmp_path: Path) -> None:
