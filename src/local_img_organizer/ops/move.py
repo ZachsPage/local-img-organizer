@@ -52,8 +52,13 @@ class Move(Operation):
 
     @classmethod
     @override
-    def undo(cls, og_data: _Data, og_planned: OpOut) -> None:
+    def undo(cls, og_data: _Data, og_planned: OpOut) -> OpOut:
         dest = og_planned.get("dest")
         if not dest:
-            return
-        Path(dest).rename(og_data.src)
+            return {}
+        dest_path = Path(dest)
+        dest_path.rename(og_data.src)
+        subdir = dest_path.parent
+        if not any(subdir.iterdir()):
+            subdir.rmdir()
+        return {"dest": str(og_data.src)}

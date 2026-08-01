@@ -6,16 +6,18 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
+from typing import ClassVar, override
 
 from local_img_organizer.interfaces import Journal
 
-_CSV_COLUMNS = ["op", "src", "ext_out", "op_out"]
+_CSV_COLUMNS = ["op", "src", "ext_out", "op_out", "is_dry"]
 
 
 @dataclass
 class CSVJournal(Journal):
     """Journal that writes to a timestamped CSV in journal_dir; reads back by file path"""
+
+    FILE_PREFIX: ClassVar[str] = "local_img_org_journal_"
 
     journal_dir: Path
     _file: Path | None = field(default=None, init=False, repr=False)
@@ -29,6 +31,7 @@ class CSVJournal(Journal):
                     str(entry.src),
                     json.dumps(entry.ext_out),
                     json.dumps(entry.op_out),
+                    json.dumps(entry.is_dry),
                 ]
             )
 
@@ -36,7 +39,7 @@ class CSVJournal(Journal):
     def get_files_for_undo(self) -> list[Path]:
         if not self.journal_dir.exists():
             return []
-        return sorted(self.journal_dir.glob("journal_*.csv"))
+        return sorted(self.journal_dir.glob(f"{self.FILE_PREFIX}*.csv"), reverse=True)
 
     @override
     def read(self, source: Path | None = None) -> Generator[Journal.Entry]:
@@ -50,13 +53,14 @@ class CSVJournal(Journal):
                     src=Path(row["src"]),
                     ext_out=json.loads(row["ext_out"]),
                     op_out=json.loads(row["op_out"]),
+                    is_dry=json.loads(row["is_dry"]) if "is_dry" in row else False,
                 )
 
     def _get_or_create_file(self) -> Path:
         if self._file is None:
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             self.journal_dir.mkdir(parents=True, exist_ok=True)
-            self._file = self.journal_dir / f"journal_{timestamp}.csv"
+            self._file = self.journal_dir / f"{self.FILE_PREFIX}{timestamp}.csv"
             with self._file.open("w", newline="") as f:
                 csv.writer(f).writerow(_CSV_COLUMNS)
         return self._file

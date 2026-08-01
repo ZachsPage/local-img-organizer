@@ -1,6 +1,7 @@
 # Example configuration
 extractors:
   classification:
+    threshold: 0.999 # very sure
     categories:
       # Define your buckets for the model to match with (or return None)
       # - More descriptive phrases often work better than single words

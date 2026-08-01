@@ -30,7 +30,7 @@ class Classification(Extractor):
         """Classification extractor configuration"""
 
         categories: dict[str, list[dict[str, Any]]]
-        threshold: float = 0.95
+        threshold: float = 0.999
         device: Literal["cuda", "cpu"] = "cuda"
         batch_size: int = 16
         debug: bool = False
@@ -64,6 +64,7 @@ class Classification(Extractor):
         model, processor = _load_model(cfg.device)
         categories = list(self.categories_to_ops.keys())
         _log.info(f"Classifying images into {len(categories)} categories: {categories}...")
+        _log.info(f"- Cfg: thresh {cfg.threshold} batch {cfg.batch_size}")
         start_ns = time.time_ns()
         path_to_cats = _classify_folder(
             folder=img_dir,

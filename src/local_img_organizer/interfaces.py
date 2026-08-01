@@ -31,6 +31,7 @@ class Journal(ABC):
         src: Path
         ext_out: ExtOut
         op_out: OpOut
+        is_dry: bool
 
     @abstractmethod
     def log(self, entry: Entry) -> None:
@@ -96,39 +97,35 @@ class Operation(ABC):
 
     @classmethod
     @abstractmethod
-    def undo(cls, og_data: Data, og_planned: OpOut) -> None:
-        """Reverse a previously executed operation"""
+    def undo(cls, og_data: Data, og_planned: OpOut) -> OpOut:
+        """Reverse a previously executed operation, returning what was actually restored"""
 
     @classmethod
-    def _safe(
-        cls,
-        action: Callable[[], None],
-        data: Data,
-        planned: OpOut,
-    ) -> OpOut:
-        """Wrap an action with error handling, return the OpOut or an error dict"""
+    def _safe(cls, action: Callable[[], OpOut], data: Data) -> OpOut:
+        """Wrap an action with error handling, returning its OpOut or an error dict"""
         try:
-            action()
+            return action()
         except Exception as ex:  # noqa: BLE001
             _log.exception(f"Error for {cls.__name__} - in: {data}, out: {ex}")
             return {"error": str(ex)}
-        return planned
 
     def prepare(self, data: Data, ext_data: ExtOut | None = None) -> Callable[[], Journal.Entry]:
         """Return callable that will plan & run the operation, returning a Journal.Entry"""
 
         def run_get_entry() -> Journal.Entry:
             planned = self.plan(data)
-            op_out = (
-                planned
-                if data.is_dry
-                else self._safe(lambda: self.run(data, planned), data, planned)
-            )
+
+            def run_and_get_out() -> OpOut:
+                self.run(data, planned)
+                return planned
+
+            op_out = planned if data.is_dry else self._safe(run_and_get_out, data)
             return Journal.Entry(
                 op=type(self).__name__.lower(),
                 src=data.src,
                 ext_out=ext_data or {},
                 op_out=op_out,
+                is_dry=data.is_dry,
             )
 
         return run_get_entry
@@ -144,13 +141,14 @@ class Operation(ABC):
             op_out = (
                 entry.op_out
                 if is_dry
-                else cls._safe(lambda: cls.undo(og_data, entry.op_out), og_data, entry.op_out)
+                else cls._safe(lambda: cls.undo(og_data, entry.op_out), og_data)
             )
             return Journal.Entry(
                 op=entry.op,
                 src=entry.src,
                 ext_out=entry.ext_out,
                 op_out=op_out,
+                is_dry=is_dry,
             )
 
         return undo_get_entry
@@ -202,7 +200,7 @@ def run_ops(
 def run_undos(
     journal: Journal,
     *,
-    source: Path | None,
+    source: Path | None = None,
     is_dry: bool = False,
 ) -> None:
     """Top level function to validate / run undos
@@ -221,6 +219,8 @@ def run_undos(
     entries = list(journal.read(source))
 
     def check(entry: Journal.Entry) -> None:
+        if entry.is_dry:
+            raise ValueError(f"{entry.src}: entry was a dry run, nothing was executed to undo")
         import_cls(f"local_img_organizer.ops.{entry.op}", entry.op, kind="op").can_undo(entry)
 
     defer_exceptions([partial(check, entry) for entry in entries])

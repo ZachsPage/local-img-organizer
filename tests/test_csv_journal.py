@@ -10,6 +10,7 @@ def _entry(i: int) -> Journal.Entry:
         src=Path(f"/img/{i}.png"),
         ext_out={"category": "cats"},
         op_out={"dest": f"/img/cats/{i}.png"},
+        is_dry=False,
     )
 
 
@@ -24,12 +25,27 @@ def test_log_and_read_round_trip(tmp_path):
     assert read_back == entries
 
 
+def test_log_and_read_round_trip_dry_run(tmp_path):
+    """Test the is_dry flag survives the csv round trip"""
+    journal = CSVJournal(journal_dir=tmp_path)
+    entry = Journal.Entry(
+        op="move",
+        src=Path("/img/0.png"),
+        ext_out={"category": "cats"},
+        op_out={"dest": "/img/cats/0.png"},
+        is_dry=True,
+    )
+    journal.log(entry)
+
+    assert list(journal.read()) == [entry]
+
+
 def test_log_appends_to_same_file(tmp_path):
     """Test repeated log() calls on one instance write to a single journal file"""
     journal = CSVJournal(journal_dir=tmp_path)
     journal.log(_entry(0))
     journal.log(_entry(1))
-    assert len(list(tmp_path.glob("journal_*.csv"))) == 1
+    assert len(list(tmp_path.glob(f"{CSVJournal.FILE_PREFIX}*.csv"))) == 1
 
 
 def test_read_missing_file_yields_nothing(tmp_path):
@@ -48,14 +64,16 @@ def test_read_specific_source(tmp_path):
 
 
 def test_get_files_for_undo(tmp_path):
-    """Test get_files_for_undo lists all journal files in journal_dir, sorted"""
+    """Test get_files_for_undo lists all journal files in journal_dir, newest first"""
     journal = CSVJournal(journal_dir=tmp_path)
-    (tmp_path / "journal_20260101_000000.csv").touch()
-    (tmp_path / "journal_20260102_000000.csv").touch()
+    first = f"{CSVJournal.FILE_PREFIX}20260101_000000.csv"
+    second = f"{CSVJournal.FILE_PREFIX}20260102_000000.csv"
+    (tmp_path / first).touch()
+    (tmp_path / second).touch()
     (tmp_path / "not_a_journal.csv").touch()
 
     files = journal.get_files_for_undo()
-    assert [f.name for f in files] == ["journal_20260101_000000.csv", "journal_20260102_000000.csv"]
+    assert [f.name for f in files] == [second, first]
 
 
 def test_get_files_for_undo_missing_dir(tmp_path):
@@ -71,6 +89,7 @@ def test_round_trip_csv_special_characters(tmp_path):
         src=Path('/img/a, "tricky" file, 猫.png'),
         ext_out={"category": 'cats, "cute"', "tags": ['a"b', "c,d"]},
         op_out={"dest": '/img/cats/a, "tricky" file, 猫.png'},
+        is_dry=False,
     )
     journal = CSVJournal(journal_dir=tmp_path)
     journal.log(entry)

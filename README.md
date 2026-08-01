@@ -29,8 +29,7 @@ The available `operations` to execute (once fed output data from an `extractor`)
 
 A large focus of this project is to provide `undo` functionality:
 - While dry-runs are supported, maybe an incorrect `rename` or `subfolder` operation slipped through
-- The user should be able to find what was done, and undo the whole operation, or just that operation
-  specifically
+- The user should be able to find what was done, and undo the whole operation
 
 ## Photo Organizing Goals
 
