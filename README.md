@@ -16,7 +16,12 @@ The available `extractors` are:
 - `classification`
     - Extracts an images classification based on use defined buckets - or `None` of it does not match any
 - `metadata`
-    - Extracts photo metadata - ex. capture time / location
+    - Extracts photo metadata - `date_taken`, `file_modified`, and `gps`
+    - `date_taken` only carries a UTC offset when the camera recorded one (EXIF 2.31's
+      `OffsetTime*` tags) - otherwise it stays a naive local wall-clock rather than being guessed
+    - `file_modified` is always reported, and is kept separate from `date_taken` so a real capture
+      time is never confused with a guess at one - an `operation` decides whether to fall back to it
+    - `gps` is also reverse geocoded offline into a `location` (city / state / country)
 
 The available `operations` to execute (once fed output data from an `extractor`):
 - `rename`
@@ -26,6 +31,9 @@ The available `operations` to execute (once fed output data from an `extractor`)
     - Moves file to a new location - ex. a subfolder for more nested organization
 - `tag`
     - Adds new tag / label entries to the photo metadata
+- `noop`
+    - Does nothing to the file - records what the extractor found in the journal
+    - Used automatically when an extractor has no operations configured
 
 A large focus of this project is to provide `undo` functionality:
 - While dry-runs are supported, maybe an incorrect `rename` or `subfolder` operation slipped through
