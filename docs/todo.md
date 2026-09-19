@@ -45,13 +45,23 @@
           Simplest, but implicit, and it breaks as soon as an op does not fit those buckets
     * Decide whether a failed `plan` should abort the run (current behavior) or just skip that
       image and journal the error the way a failed `run` does
-* `operation` - `rename`
+    * `prepare` returns one callable that plans *and* runs, so the order is plan/run per image,
+      not plan-everything-then-run. A failed `plan` stops the run, but every image before it has
+      already been executed (journaled, so `--undo` still covers them)
+        * Planning every image up front would match `run_undos`, which validates all entries via
+          `defer_exceptions` before undoing any
+        * Needs `plan` & `run` split into separate callables - and a chained op cannot be planned
+          up front while it depends on where the previous op left the file
+* `operation` - `rename` - done
     * Needs a way to route extractor metadata (ex. `date_taken`) into the new name
     * `tag` needs the same metadata access, but should only write it when the tag doesn't already
       exist on the file (ex. skip if `DateTimeOriginal` is already set)
     * Also want to run an op only when a metadata value matches something specific - ex. `move`
       only when `location` is a given city. `rename` is the first case needing this, but think it
       through generally rather than one-off for `rename`
+* Exclusions list so extractors skip specific files or folders under the `--input-dir`
+    * Entries take names or wildcards - ex. `Screenshots`, `*.gif`, `IMG_*_edited.jpg`
+    * Apply in `find_images` so every extractor gets it for free - and add looking in subdirs
 * `operation` - `tag`
     * Use `exiftool` (`-P` to preserve mtime) to tag since it's in place, not Pillow as it can
       drop tags & re-encode pixels
@@ -59,5 +69,6 @@
     * A rename leaves mtime alone, but a content write bumps it - so tagging a photo that still
       has no `DateTimeOriginal` makes a later run see the rewrite time as its `file_modified`,
       silently. Wrap writes in a `preserve_mtime` helper in `utils.py`
+* Maybe add a GUI to show a planned journal from dry-run?
 
 ## Working Notes

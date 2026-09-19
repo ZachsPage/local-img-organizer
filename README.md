@@ -25,8 +25,9 @@ The available `extractors` are:
 
 The available `operations` to execute (once fed output data from an `extractor`):
 - `rename`
-    - Unifies naming of pictures to align with the format `IMG_{YYYY}{MM}{DD}_{HH}{MM}{SS}{MS_}`
-    - If the `metadata` extractor fails, tries to infer from file name
+    - Unifies naming of pictures to align with the format `IMG{YYYY}{MM}{DD}{HH}{MM}{SS}{MS}`
+    - Uses the `metadata` extractor's `date_taken`, falling back to the file's modified time
+    - Skips names that already hold a date, or have no digits (a human-readable name)
 - `move`
     - Moves file to a new location - ex. a subfolder for more nested organization
 - `tag`

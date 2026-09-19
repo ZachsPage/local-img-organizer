@@ -39,18 +39,28 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Undo from a journal - will be prompted",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=logging.getLevelNamesMapping(),
+        help="Log level - DEBUG shows why operations skip images",
+    )
     args = parser.parse_args()
     if not args.undo and (args.input_dir is None or args.cfg is None):
         parser.error("--input-dir/-i and --cfg/-c are required unless --undo is set")
-    if args.journal_dir is None:
-        _log.info(f"Nothing passed for --journal-dir, use --input-dir {args.input_dir}")
-        args.journal_dir = args.input_dir
     return args
 
 
 def main() -> None:
     """Run extractors & operations for all images, or undo a previous run"""
     args = parse_args()
+    logging.basicConfig(
+        level=args.log_level,
+        format="[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s",
+    )
+    if args.journal_dir is None:
+        _log.info(f"Nothing passed for --journal-dir, use --input-dir {args.input_dir}")
+        args.journal_dir = args.input_dir
     journal = CSVJournal(journal_dir=args.journal_dir)
     if args.undo:
         run_undos(journal, is_dry=args.dry_run)

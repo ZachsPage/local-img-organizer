@@ -7,6 +7,7 @@ from typing import ClassVar, override
 import pytest
 
 from local_img_organizer.interfaces import Extractor, Journal, Operation, OpOut, run_ops, run_undos
+from local_img_organizer.ops.noop import Noop
 
 _log = logging.getLogger(__name__)
 
@@ -94,6 +95,27 @@ def test_run_ops(tmp_path):
         assert undo_entry.op_out == {"from": entry.op_out["to"], "to": entry.op_out["from"]}
 
 
+def test_run_ops_skips_entries_without_action(tmp_path):
+    """Test run_ops only journals entries whose op did something, plus noop entries"""
+    (tmp_path / "test_file.png").touch()
+
+    class SkipOp(StubOperation):
+        class Cfg(Operation.Cfg):
+            pass
+
+        @override
+        def plan(self, data: Operation.Data) -> OpOut:
+            return {}
+
+        @override
+        def run(self, data: Operation.Data, planned: OpOut) -> None:
+            pass
+
+    journal = StubJournal()
+    run_ops(tmp_path, journal, [StubExtractor(ops=[SkipOp(), Noop()])])
+    assert [e.op for e in journal.read()] == ["noop"]
+
+
 def test_run_ops_dry_run_tags_entries(tmp_path):
     """Test entries produced during a dry run are tagged is_dry so they can't be undone later"""
     (tmp_path / "test_file.png").touch()
@@ -162,6 +184,23 @@ def test_bad_op_run():
 
     # Verify error was captured, not raised
     assert entry.op_out == {"error": "something went wrong"}
+
+
+def test_prepare_passes_ext_to_plan():
+    """Test the extractor's data reaches plan through Operation.Data.ext"""
+
+    class ExtOp(StubOperation):
+        class Cfg(Operation.Cfg):
+            pass
+
+        @override
+        def plan(self, data: Operation.Data) -> OpOut:
+            return dict(data.ext)
+
+    data = Operation.Data(src=Path("fake.png"), is_dry=True)
+    entry = ExtOp().prepare(data, ext_data={"label": "x"})()
+    assert entry.op_out == {"label": "x"}
+    assert entry.ext_out == {"label": "x"}
 
 
 # run_undos resolves op classes dynamically via `local_img_organizer.ops.<entry.op>`, so these

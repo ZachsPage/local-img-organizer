@@ -58,7 +58,7 @@ class CSVJournal(Journal):
 
     def _get_or_create_file(self) -> Path:
         if self._file is None:
-            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
             self.journal_dir.mkdir(parents=True, exist_ok=True)
             self._file = self.journal_dir / f"{self.FILE_PREFIX}{timestamp}.csv"
             with self._file.open("w", newline="") as f:
