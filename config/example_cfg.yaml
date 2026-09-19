@@ -22,5 +22,7 @@ extractors:
       #     value: indoor
   metadata:
     # Extracts date_taken / file_modified / gps / location - with no operations set up every
-    # image runs `noop`, so the metadata still shows up in the journal
+    # readable image runs `noop`, so the metadata still shows up in the journal
     lookup_location: true # turn any gps found into a city / state / country
+    operations:
+      - op: rename

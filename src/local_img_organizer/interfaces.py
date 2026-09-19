@@ -3,7 +3,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, Self
@@ -70,6 +70,7 @@ class Operation(ABC):
 
         src: Path
         is_dry: bool  # do not actually execute
+        ext: ExtOut = field(default_factory=dict)
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Verify subclass contract at definition time"""
@@ -111,6 +112,7 @@ class Operation(ABC):
 
     def prepare(self, data: Data, ext_data: ExtOut | None = None) -> Callable[[], Journal.Entry]:
         """Return callable that will plan & run the operation, returning a Journal.Entry"""
+        data = replace(data, ext=ext_data or {})
 
         def run_get_entry() -> Journal.Entry:
             planned = self.plan(data)
@@ -123,7 +125,7 @@ class Operation(ABC):
             return Journal.Entry(
                 op=type(self).__name__.lower(),
                 src=data.src,
-                ext_out=ext_data or {},
+                ext_out=data.ext,
                 op_out=op_out,
                 is_dry=data.is_dry,
             )
@@ -194,7 +196,9 @@ def run_ops(
     img_dir = img_dir.resolve()
     for ext in extractors:
         for op in ext.run(img_dir, is_dry=is_dry):
-            journal.log(op())
+            entry = op()
+            if entry.op_out or entry.op == "noop":
+                journal.log(entry)
 
 
 def run_undos(

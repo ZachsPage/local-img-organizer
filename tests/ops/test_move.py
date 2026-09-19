@@ -124,3 +124,37 @@ def test_undo_noop_for_failed_run(tmp_path):
     src = tmp_path / "a.png"
     Move.undo(Operation.Data(src=src, is_dry=False), {"error": "something went wrong"})
     assert not src.exists()
+
+
+def test_roundtrip(tmp_path):
+    """Test the plan -> run -> undo round trip, with undo reporting the file's real location"""
+    src = tmp_path / "a.png"
+    src.touch()
+    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
+    data = Operation.Data(src=src, is_dry=False)
+    planned = op.plan(data)
+    op.run(data, planned)
+    assert op.undo(data, planned) == {"dest": str(src)}
+    assert src.exists()
+    assert not Path(planned["dest"]).exists()
+
+
+def test_undo_removes_emptied_subdir(tmp_path):
+    """Test undo deletes the subdir it moved into if undo leaves it empty"""
+    src = tmp_path / "a.png"
+    dest = tmp_path / "cats" / "a.png"
+    dest.parent.mkdir()
+    dest.touch()
+    Move.undo(Operation.Data(src=src, is_dry=False), {"dest": str(dest)})
+    assert not dest.parent.exists()
+
+
+def test_undo_keeps_nonempty_subdir(tmp_path):
+    """Test undo leaves the subdir if other files remain in it"""
+    src = tmp_path / "a.png"
+    dest = tmp_path / "cats" / "a.png"
+    dest.parent.mkdir()
+    dest.touch()
+    (dest.parent / "other.png").touch()
+    Move.undo(Operation.Data(src=src, is_dry=False), {"dest": str(dest)})
+    assert dest.parent.exists()

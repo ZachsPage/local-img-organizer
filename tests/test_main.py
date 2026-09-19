@@ -22,12 +22,17 @@ def test_parse_args_allows_missing_input_and_cfg_with_undo(monkeypatch):
     assert args.cfg is None
 
 
-def test_parse_args_journal_dir_defaults_to_input_dir(monkeypatch, tmp_path):
+def test_main_journal_dir_defaults_to_input_dir(monkeypatch, tmp_path):
     """Test omitting -j falls back to -i"""
+    calls = {}
     cfg = tmp_path / "cfg.yaml"
     monkeypatch.setattr(sys, "argv", ["main.py", "-i", str(tmp_path), "-c", str(cfg)])
-    args = main_module.parse_args()
-    assert args.journal_dir == tmp_path
+    monkeypatch.setattr(main_module, "parse_extractors", lambda _: [])
+    monkeypatch.setattr(
+        main_module, "run_ops", lambda _dir, journal, *_, **__: calls.setdefault("journal", journal)
+    )
+    main_module.main()
+    assert calls["journal"].journal_dir == tmp_path
 
 
 def test_parse_args_journal_dir_explicit(monkeypatch, tmp_path):

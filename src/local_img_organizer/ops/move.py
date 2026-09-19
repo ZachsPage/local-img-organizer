@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import override
 
 from local_img_organizer.interfaces import Journal, Operation, OpOut
+from local_img_organizer.utils import get_logger
+
+_log = get_logger(__name__)
 
 type _Data = Operation.Data
 
@@ -25,6 +28,7 @@ class Move(Operation):
         if not data.src.is_file():
             raise ValueError(f"{data.src} is not a file")
         if data.src.parent.name == self.cfg.subdir_name:
+            _log.debug(f"{data.src.name}: skipping, already in {self.cfg.subdir_name}")
             return {}
         dest = data.src.parent / self.cfg.subdir_name / data.src.name
         if dest.exists():

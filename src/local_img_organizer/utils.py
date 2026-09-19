@@ -12,17 +12,8 @@ IMG_EXTENSIONS = ("jpg", "jpeg", "png", "webp", "gif", "bmp")
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Return a configured logger"""
-    pkg_name = "local_img_organizer."
-    log = logging.getLogger(name.removeprefix(pkg_name))
-    if not log.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(
-            logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s")
-        )
-        log.addHandler(handler)
-    log.setLevel(logging.INFO)
-    return log
+    """Return a logger named without the package prefix - level & format are set in `main.py`"""
+    return logging.getLogger(name.removeprefix("local_img_organizer."))
 
 
 def find_images(folder: Path, extensions: Iterable[str] = IMG_EXTENSIONS) -> list[Path]:

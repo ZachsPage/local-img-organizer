@@ -101,15 +101,12 @@ def test_feeds_operations(tmp_path: Path) -> None:
 
 
 def test_require_gates_operations(tmp_path: Path) -> None:
-    """Verify `require` keeps operations off images missing those keys, but still journals them"""
+    """Verify `require` keeps operations off images missing those keys"""
     _write(tmp_path / "located.jpg", _exif(gps=True))
     _write(tmp_path / "plain.jpg", _exif())
     entries = _run(tmp_path, require=["gps"], operations=[{"op": "move", "subdir_name": "located"}])
 
-    by_name = {e.src.name: e for e in entries}
-    assert by_name["located.jpg"].op == "move"
-    assert by_name["plain.jpg"].op == "noop"
-    assert "gps" not in by_name["plain.jpg"].ext_out
+    assert [(e.src.name, e.op) for e in entries] == [("located.jpg", "move")]
     assert (tmp_path / "located" / "located.jpg").exists()
     assert (tmp_path / "plain.jpg").exists()
 
@@ -176,17 +173,12 @@ def test_png_creation_time_formats(tmp_path: Path, written: str, expected: str |
 
 
 def test_bad_and_ignored_files(tmp_path: Path) -> None:
-    """Verify unreadable images are journaled as errors & non-images are skipped entirely"""
+    """Verify unreadable images & non-images get no operations"""
     (tmp_path / "broken.jpg").write_bytes(b"not an image")
     (tmp_path / "notes.txt").write_text("ignore me")
     (tmp_path / "subdir").mkdir()
-    entries = _run(tmp_path, operations=[{"op": "move", "subdir_name": "x"}])
-
-    assert len(entries) == 1
-    assert entries[0].src.name == "broken.jpg"
     # Nothing is known about the file, so its ops are skipped rather than run blind
-    assert entries[0].op == "noop"
-    assert "error" in entries[0].ext_out
+    assert _run(tmp_path, operations=[{"op": "move", "subdir_name": "x"}]) == []
 
 
 def test_reads_supported_extensions_only(tmp_path: Path) -> None:

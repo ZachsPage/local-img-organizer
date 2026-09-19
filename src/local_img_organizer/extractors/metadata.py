@@ -77,8 +77,8 @@ _DATE_SOURCES = (
 class Metadata(Extractor):
     """Extracts photo metadata (ex. capture time / GPS location) to be used in Operations
 
-    With no `operations` configured every image runs `noop`, so the metadata still shows up in
-    the journal - handy to see what is available before deciding what to do with it.
+    With no `operations` configured every readable image runs `noop`, so the metadata still shows
+    up in the journal - handy to see what is available before deciding what to do with it.
     """
 
     class Cfg(Extractor.Cfg):
@@ -119,7 +119,7 @@ class Metadata(Extractor):
             meta = _extract(path, lookup_location=cfg.lookup_location)
             for key in counts:
                 counts[key] += key in meta
-            ops = self.ops if self._should_run_ops(meta) else [Noop()]
+            ops = self.ops if self._should_run_ops(path, meta) else []
             for op in ops:
                 yield op.prepare(Operation.Data(src=path, is_dry=is_dry), ext_data=meta)
         _log.info(
@@ -127,11 +127,14 @@ class Metadata(Extractor):
             f"coordinates for {counts['gps']}, and failed to read {counts['error']}"
         )
 
-    def _should_run_ops(self, meta: ExtOut) -> bool:
+    def _should_run_ops(self, path: Path, meta: ExtOut) -> bool:
         """Return whether this image's metadata satisfies the configured `require` keys"""
         if "error" in meta:
             return False
-        return all(key in meta for key in self.cfg.require)
+        if missing := [key for key in self.cfg.require if key not in meta]:
+            _log.debug(f"{path.name}: skipping operations, missing required {missing}")
+            return False
+        return True
 
 
 def _extract(path: Path, *, lookup_location: bool) -> ExtOut:
