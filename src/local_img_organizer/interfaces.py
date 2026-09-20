@@ -152,12 +152,14 @@ def run_ops(
     journal: Journal,
     extractors: list[Extractor],
     *,
+    exclusions: list[str] | None = None,
     is_dry: bool = False,
 ) -> None:
     """Top level function to tie all the interfaces together
     :param img_dir: Dir with the images to run on (recursively)
     :param extractors: Extractors to set up & execute Operations for
     :param journal: Journal implementation
+    :param exclusions: Names / wildcards under `img_dir` to skip - see `find_images`
     :param is_dry: Do not actually execute operations
     """
     if not extractors:
@@ -167,7 +169,7 @@ def run_ops(
     img_dir = img_dir.resolve()
     # Built once & shared, so an op later in a chain plans against where the file will be, and
     # so every op on the same image journals the same img_uid for undo to group by
-    images = ImgFile.collect(find_images(img_dir))
+    images = ImgFile.collect(find_images(img_dir, exclusions=exclusions or []))
     for ext in extractors:
         for op, data in ext.run(images, is_dry=is_dry):
             _log_then_run(op, data, journal)

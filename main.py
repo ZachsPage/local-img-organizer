@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from local_img_organizer.config import parse_extractors
+from local_img_organizer.config import parse_exclusions, parse_extractors
 from local_img_organizer.interfaces import run_ops, run_undos
 from local_img_organizer.journals.csv_journal import CSVJournal
 
@@ -66,7 +66,8 @@ def main() -> None:
         run_undos(journal, is_dry=args.dry_run)
     else:
         extractors = parse_extractors(args.cfg)
-        run_ops(args.input_dir, journal, extractors, is_dry=args.dry_run)
+        exclusions = parse_exclusions(args.cfg)
+        run_ops(args.input_dir, journal, extractors, exclusions=exclusions, is_dry=args.dry_run)
 
 
 if __name__ == "__main__":
