@@ -28,14 +28,20 @@ The available `extractors` are:
     - `gps` is also reverse geocoded offline into a `location` (city / state / country)
 
 The available `operations` to execute (once fed output data from an `extractor`):
+- `move`
+    - Moves file to a new location - ex. a subfolder for more nested organization based on the `classification` extractor output
 - `rename`
     - Unifies naming of pictures to align with the format `IMG{YYYY}{MM}{DD}{HH}{MM}{SS}{MS}`
     - Uses the `metadata` extractor's `date_taken`, falling back to the file's modified time
     - Skips names that already hold a date, or have no digits (a human-readable name)
-- `move`
-    - Moves file to a new location - ex. a subfolder for more nested organization
 - `tag`
-    - Adds new tag / label entries to the photo metadata
+    - Writes metadata into the image in place with `exiftool`, keeping its pixels & modified time
+    - `date: true` fills in the "date taken" tags (`DateTimeOriginal` / `CreateDate`, plus the
+      `OffsetTime*` pair when the zone is known) from the file's modified time - only for images
+      with no capture time of their own, so a real one is never overwritten by the guess
+    - `name` / `value` adds a `name:value` keyword to `XMP-dc:Subject` & `IPTC:Keywords`, the
+      fields photo managers show as tags - skipped when the image already carries it
+    - Undo deletes the date tags it wrote & removes only the keyword value it added
 - `noop`
     - Does nothing to the file - records what the extractor found in the journal
     - Used automatically when an extractor has no operations configured
@@ -63,6 +69,8 @@ Other useful tools discovered during this project:
 
 Uses [uv](https://github.com/astral-sh/uv) as a project manager:
 - See their website for install if needed, then run `uv sync`
+- The `tag` operation shells out to [exiftool](https://exiftool.org/), which is not a Python
+  package - install it separately (ex. `apt install libimage-exiftool-perl`)
 
 ```bash
 # Run the project

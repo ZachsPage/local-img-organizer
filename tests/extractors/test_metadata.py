@@ -7,7 +7,7 @@ import pytest
 from PIL import ExifTags, Image, PngImagePlugin
 from PIL.TiffImagePlugin import IFDRational
 
-from local_img_organizer.extractors.metadata import Metadata
+from local_img_organizer.extractors.metadata import Metadata, _extract
 from local_img_organizer.interfaces import Journal, run_ops
 from tests.stubs import StubJournal
 
@@ -182,6 +182,19 @@ def test_bad_and_ignored_files(tmp_path: Path) -> None:
     (tmp_path / "subdir").mkdir()
     # Nothing is known about the file, so its ops are skipped rather than run blind
     assert _run(tmp_path, operations=[{"op": "move", "subdir_name": "x"}]) == []
+
+
+def test_a_missing_file_is_fatal(tmp_path: Path) -> None:
+    """Verify a path that is not there stops the run rather than being counted as unreadable
+
+    `find_images` listed it moments earlier, so it can only mean the run is reading where an
+    operation *planned* to put the file instead of where the file actually is.
+    """
+    _write(tmp_path / "a.jpg", _exif(), format="JPEG")
+    (tmp_path / "a.jpg").rename(tmp_path / "b.jpg")
+
+    with pytest.raises(FileNotFoundError):
+        _extract(tmp_path / "a.jpg", lookup_location=False)
 
 
 def test_reads_supported_extensions_only(tmp_path: Path) -> None:

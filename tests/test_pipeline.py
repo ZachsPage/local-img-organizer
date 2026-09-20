@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import override
 
 import pytest
+from PIL import Image
 
+from local_img_organizer.extractors.metadata import Metadata
 from local_img_organizer.img_file import ImgFile
 from local_img_organizer.interfaces import Extractor, Operation, run_ops, run_undos
 from local_img_organizer.ops.move import Move
@@ -126,3 +128,23 @@ def test_failed_run_mid_chain_leaves_an_undoable_journal(tmp_path):
 
     run_undos(journal, source=Path("unused"))
     assert src.exists()
+
+
+def test_dry_run_later_extractor_reads_where_the_file_still_is(tmp_path):
+    """Test an extractor after a planned move reads the real file, not the path ops plan to use
+
+    A dry run moves nothing, so `ImgFile.path` (where the chain plans to leave the file) and
+    `disk_path` (where its bytes are) diverge for every extractor after the first.
+    """
+    src = tmp_path / "IMG_3052.jpg"
+    Image.new("RGB", (1, 1)).save(src)
+
+    journal = StubJournal()
+    mover = _Extractor(ops=[Move(cfg=Move.Cfg(op="move", subdir_name="dated"))])
+    metadata = Metadata.from_cfg({"lookup_location": False})
+    run_ops(tmp_path, journal, [mover, metadata], is_dry=True)
+
+    moved, found = journal.entries
+    assert moved.op_out == {"dest": str(tmp_path / "dated" / "IMG_3052.jpg")}
+    assert "error" not in found.ext_out
+    assert "file_modified" in found.ext_out

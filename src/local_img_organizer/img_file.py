@@ -27,6 +27,9 @@ class ImgFile:
     # Paths claimed by a plan this run, shared by every ImgFile so two images cannot plan the same
     # name. A dry run moves nothing, so the filesystem alone cannot answer this
     taken: set[Path] = field(default_factory=set)
+    # Where the bytes actually are - read from here whenever a `plan` needs the real file rather
+    # than where the run means to leave it. A dry run never moves anything, so a path an earlier
+    # op planned may never exist (ex. `tag` checking its preconditions after `move` planned)
     disk_path: Path = field(init=False)
 
     def __post_init__(self) -> None:
