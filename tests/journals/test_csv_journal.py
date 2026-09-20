@@ -7,6 +7,7 @@ from local_img_organizer.journals.csv_journal import CSVJournal
 def _entry(i: int) -> Journal.Entry:
     return Journal.Entry(
         op="move",
+        img_uid="img0",
         src=Path(f"/img/{i}.png"),
         ext_out={"category": "cats"},
         op_out={"dest": f"/img/cats/{i}.png"},
@@ -30,6 +31,7 @@ def test_log_and_read_round_trip_dry_run(tmp_path):
     journal = CSVJournal(journal_dir=tmp_path)
     entry = Journal.Entry(
         op="move",
+        img_uid="img0",
         src=Path("/img/0.png"),
         ext_out={"category": "cats"},
         op_out={"dest": "/img/cats/0.png"},
@@ -86,6 +88,7 @@ def test_round_trip_csv_special_characters(tmp_path):
     """Test paths/values with commas, quotes, and unicode survive the csv+json round trip"""
     entry = Journal.Entry(
         op="move",
+        img_uid="img0",
         src=Path('/img/a, "tricky" file, 猫.png'),
         ext_out={"category": 'cats, "cute"', "tags": ['a"b', "c,d"]},
         op_out={"dest": '/img/cats/a, "tricky" file, 猫.png'},

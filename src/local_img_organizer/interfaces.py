@@ -2,15 +2,15 @@
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from dataclasses import dataclass, field, replace
-from functools import partial
 from pathlib import Path
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict
 
-from local_img_organizer.utils import defer_exceptions, import_cls
+from local_img_organizer.img_file import ImgFile
+from local_img_organizer.utils import find_images, import_cls
 
 _log = logging.getLogger(__name__)
 
@@ -28,10 +28,16 @@ class Journal(ABC):
         """Needed data for each journal entry"""
 
         op: str
+        img_uid: str
         src: Path
         ext_out: ExtOut
         op_out: OpOut
         is_dry: bool
+
+        @property
+        def dest(self) -> Path | None:
+            """Where this entry's op left the file, or None if it did not move one"""
+            return Path(self.op_out["dest"]) if "dest" in self.op_out else None
 
     @abstractmethod
     def log(self, entry: Entry) -> None:
@@ -68,7 +74,7 @@ class Operation(ABC):
     class Data:
         """Input data to run with"""
 
-        src: Path
+        src: ImgFile
         is_dry: bool  # do not actually execute
         ext: ExtOut = field(default_factory=dict)
 
@@ -85,7 +91,7 @@ class Operation(ABC):
 
     @abstractmethod
     def plan(self, data: Data) -> OpOut:
-        """Compute and return what this operation will do - raise if invalid"""
+        """Compute and return what this operation will do - used for dry-run - raise if invalid"""
 
     @abstractmethod
     def run(self, data: Data, planned: OpOut) -> None:
@@ -93,67 +99,30 @@ class Operation(ABC):
 
     @classmethod
     @abstractmethod
-    def can_undo(cls, entry: Journal.Entry) -> None:
-        """Raise with a reason if this entry's undo is invalid - ex. missing files"""
+    def plan_undo(cls, entry: Journal.Entry, img: ImgFile) -> OpOut:
+        """Validate this entry's undo against where the image now sits & claim whatever the undo
+        needs, returning what it will do - `{}` when this operation changes nothing to reverse
+        """
 
     @classmethod
     @abstractmethod
-    def undo(cls, og_data: Data, og_planned: OpOut) -> OpOut:
-        """Reverse a previously executed operation, returning what was actually restored"""
+    def undo(cls, img: ImgFile, planned: OpOut) -> None:
+        """Reverse a previously executed operation - only called with a non-empty `plan_undo`"""
 
-    @classmethod
-    def _safe(cls, action: Callable[[], OpOut], data: Data) -> OpOut:
-        """Wrap an action with error handling, returning its OpOut or an error dict"""
-        try:
-            return action()
-        except Exception as ex:  # noqa: BLE001
-            _log.exception(f"Error for {cls.__name__} - in: {data}, out: {ex}")
-            return {"error": str(ex)}
-
-    def prepare(self, data: Data, ext_data: ExtOut | None = None) -> Callable[[], Journal.Entry]:
-        """Return callable that will plan & run the operation, returning a Journal.Entry"""
-        data = replace(data, ext=ext_data or {})
-
-        def run_get_entry() -> Journal.Entry:
-            planned = self.plan(data)
-
-            def run_and_get_out() -> OpOut:
-                self.run(data, planned)
-                return planned
-
-            op_out = planned if data.is_dry else self._safe(run_and_get_out, data)
-            return Journal.Entry(
-                op=type(self).__name__.lower(),
-                src=data.src,
-                ext_out=data.ext,
-                op_out=op_out,
-                is_dry=data.is_dry,
-            )
-
-        return run_get_entry
-
-    @classmethod
-    def prepare_undo(
-        cls, entry: Journal.Entry, *, is_dry: bool = False
-    ) -> Callable[[], Journal.Entry]:
-        """Return callable that will undo a previously journaled operation"""
-
-        def undo_get_entry() -> Journal.Entry:
-            og_data = Operation.Data(src=entry.src, is_dry=is_dry)
-            op_out = (
-                entry.op_out
-                if is_dry
-                else cls._safe(lambda: cls.undo(og_data, entry.op_out), og_data)
-            )
-            return Journal.Entry(
-                op=entry.op,
-                src=entry.src,
-                ext_out=entry.ext_out,
-                op_out=op_out,
-                is_dry=is_dry,
-            )
-
-        return undo_get_entry
+    def plan_entry(self, data: Data) -> Journal.Entry | None:
+        """Plan this operation & return the entry to journal, or None with nothing to record"""
+        # Read before planning - `plan` may advance the image's path for the next op in a chain
+        src = data.src.path
+        if not (planned := self.plan(data)):
+            return None
+        return Journal.Entry(
+            op=type(self).__name__.lower(),
+            img_uid=data.src.id,
+            src=src,
+            ext_out=data.ext,
+            op_out=planned,
+            is_dry=data.is_dry,
+        )
 
 
 @dataclass
@@ -170,9 +139,11 @@ class Extractor(ABC):
             raise TypeError(f"{cls.__name__} must define a Cfg inner class")
 
     @abstractmethod
-    def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
+    def run(
+        self, images: list[ImgFile], *, is_dry: bool
+    ) -> Generator[tuple[Operation, Operation.Data]]:
         """Run the extractor to get all of its metadata, then for each of its assigned Operations,
-        yield the prepared op for each located img
+        yield it with the data to run it on, for each img
         """
 
 
@@ -194,11 +165,33 @@ def run_ops(
     # Resolve to absolute so journaled entries (src, and any op-specific paths derived from it,
     # ex. Move's dest) remain valid for undo regardless of the cwd at undo time.
     img_dir = img_dir.resolve()
+    # Built once & shared, so an op later in a chain plans against where the file will be, and
+    # so every op on the same image journals the same img_uid for undo to group by
+    images = ImgFile.collect(find_images(img_dir))
     for ext in extractors:
-        for op in ext.run(img_dir, is_dry=is_dry):
-            entry = op()
-            if entry.op_out or entry.op == "noop":
-                journal.log(entry)
+        for op, data in ext.run(images, is_dry=is_dry):
+            _log_then_run(op, data, journal)
+
+
+def _log_then_run(op: Operation, data: Operation.Data, journal: Journal) -> None:
+    """Journal what the operation plans, then execute it
+
+    The entry is written *before* the operation runs, so a failed run - or a crash between the
+    two - can leave an entry for something that did not happen, but never a change with no entry.
+    `ImgFile.from_journal_for_undo` tells those apart by where the file actually is. A failed run
+    journals the error & re-raises to stop the run, leaving everything already done undoable.
+    """
+    if (entry := op.plan_entry(data)) is None:
+        return
+    journal.log(entry)
+    if data.is_dry:
+        return
+    try:
+        op.run(data, entry.op_out)
+    except Exception as ex:
+        _log.exception(f"Error for {entry.op} - in: {data}, out: {ex}")
+        journal.log(replace(entry, op_out={"error": str(ex)}))
+        raise
 
 
 def run_undos(
@@ -220,15 +213,38 @@ def run_undos(
             print(f"  [{i}] {f.name}")
         source = options[int(input("Select journal to undo: "))]
 
-    entries = list(journal.read(source))
+    for op_cls, entry, img, out in _plan_undos(list(journal.read(source))):
+        journal.log(replace(entry, op_out=out, is_dry=is_dry))
+        if not is_dry:
+            op_cls.undo(img, out)
 
-    def check(entry: Journal.Entry) -> None:
+
+type _PlannedUndo = tuple[type[Operation], Journal.Entry, ImgFile, OpOut]
+
+
+def _plan_undos(entries: list[Journal.Entry]) -> list[_PlannedUndo]:
+    """Return every undo to run, newest entry first, or raise with all the reasons it cannot
+
+    Planning all of them before any runs means a journal that cannot be fully unwound changes
+    nothing. Each image gets one ImgFile, created where the latest entry left it - a chain's
+    earlier entries name paths that only exist again once its later ones are undone, and each
+    planned undo moves the ImgFile back for the entry before it.
+    """
+    images: dict[str, ImgFile] = {}
+    planned: list[_PlannedUndo] = []
+    errors: list[str] = []
+    for entry in reversed(entries):
         if entry.is_dry:
-            raise ValueError(f"{entry.src}: entry was a dry run, nothing was executed to undo")
-        import_cls(f"local_img_organizer.ops.{entry.op}", entry.op, kind="op").can_undo(entry)
-
-    defer_exceptions([partial(check, entry) for entry in entries])
-
-    for entry in entries:
-        op_cls = import_cls(f"local_img_organizer.ops.{entry.op}", entry.op, kind="op")
-        journal.log(op_cls.prepare_undo(entry, is_dry=is_dry)())
+            errors.append(f"{entry.src}: entry was a dry run, nothing was executed to undo")
+            continue
+        try:
+            op_cls = import_cls(f"local_img_organizer.ops.{entry.op}", entry.op, kind="op")
+            if (img := images.get(entry.img_uid)) is None:
+                img = images[entry.img_uid] = ImgFile.from_journal_for_undo(entry)
+            if out := op_cls.plan_undo(entry, img):
+                planned.append((op_cls, entry, img, out))
+        except Exception as ex:  # noqa: BLE001
+            errors.append(str(ex))
+    if errors:
+        raise RuntimeError("\n".join(errors))
+    return planned

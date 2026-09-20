@@ -8,7 +8,8 @@ from PIL import ExifTags, Image, PngImagePlugin
 from PIL.TiffImagePlugin import IFDRational
 
 from local_img_organizer.extractors.metadata import Metadata
-from local_img_organizer.interfaces import Journal
+from local_img_organizer.interfaces import Journal, run_ops
+from tests.stubs import StubJournal
 
 _DATE = "2023:07:14 10:22:31"
 _ISO = "2023-07-14T10:22:31"
@@ -51,7 +52,9 @@ def _write(path: Path, exif: Image.Exif | None = None, **kwargs: Any) -> Path:
 
 def _run(img_dir: Path, **cfg: object) -> list[Journal.Entry]:
     extractor = Metadata.from_cfg(dict(cfg))
-    return [prepared() for prepared in extractor.run(img_dir, is_dry=False)]
+    journal = StubJournal()
+    run_ops(img_dir, journal, [extractor])
+    return journal.entries
 
 
 def test_extracts_date_and_gps(tmp_path: Path) -> None:
@@ -84,7 +87,7 @@ def test_journals_noop_with_no_operations(tmp_path: Path) -> None:
     entries = _run(tmp_path)
 
     assert [e.op for e in entries] == ["noop"]
-    assert entries[0].op_out == {}
+    assert entries[0].op_out == {"noop": True}
     assert entries[0].src == tmp_path / "a.jpg"
     assert entries[0].ext_out["date_taken"] == _ISO
 

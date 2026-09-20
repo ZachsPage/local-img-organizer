@@ -10,7 +10,7 @@ from typing import ClassVar, override
 
 from local_img_organizer.interfaces import Journal
 
-_CSV_COLUMNS = ["op", "src", "ext_out", "op_out", "is_dry"]
+_CSV_COLUMNS = ["op", "img_uid", "src", "ext_out", "op_out", "is_dry"]
 
 
 @dataclass
@@ -28,6 +28,7 @@ class CSVJournal(Journal):
             csv.writer(f).writerow(
                 [
                     entry.op,
+                    entry.img_uid,
                     str(entry.src),
                     json.dumps(entry.ext_out),
                     json.dumps(entry.op_out),
@@ -50,6 +51,7 @@ class CSVJournal(Journal):
             for row in csv.DictReader(f):
                 yield Journal.Entry(
                     op=row["op"],
+                    img_uid=row["img_uid"],
                     src=Path(row["src"]),
                     ext_out=json.loads(row["ext_out"]),
                     op_out=json.loads(row["op_out"]),

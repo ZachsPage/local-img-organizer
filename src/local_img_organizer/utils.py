@@ -1,7 +1,7 @@
 """Uncategorized project utilities"""
 
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -35,15 +35,17 @@ def import_cls(module: str, name: str, *, kind: str) -> Any:  # noqa: ANN401
         raise ValueError(f"Unknown {kind}: {name!r}") from None
 
 
-def defer_exceptions(actions: list[Callable[[], None]]) -> None:
-    """Run every action, deferring any exceptions until all have been attempted, then raise
-    one combined error (message text only) covering all failures
+def move_file(src: Path, dest: Path) -> None:
+    """Move `src` to `dest`, verifying the filesystem still matches what was planned
+
+    `Path.rename` replaces an existing `dest` silently, so the checks here are what keep a stale
+    plan from destroying a file - every operation that moves bytes around goes through this.
     """
-    errors = []
-    for action in actions:
-        try:
-            action()
-        except Exception as ex:  # noqa: BLE001
-            errors.append(str(ex))
-    if errors:
-        raise RuntimeError("\n".join(errors))
+    if not src.is_file():
+        raise ValueError(f"{src} is not a file")
+    if dest.exists():
+        raise ValueError(f"Dest {dest} already exists?")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    src.rename(dest)
+    if not dest.is_file():
+        raise ValueError(f"{src} was not moved to {dest}?")

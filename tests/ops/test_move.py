@@ -2,19 +2,17 @@ from pathlib import Path
 
 import pytest
 
+from local_img_organizer.img_file import ImgFile
 from local_img_organizer.interfaces import Journal, Operation
 from local_img_organizer.ops.move import Move
 
 
-def _entry(src: Path, op_out: dict) -> Journal.Entry:
-    return Journal.Entry(op="move", src=src, ext_out={}, op_out=op_out, is_dry=False)
+def _move(subdir_name: str = "cats") -> Move:
+    return Move(cfg=Move.Cfg(op="move", subdir_name=subdir_name))
 
 
-def test_plan_not_a_file(tmp_path):
-    """Test planning a move for a src that does not exist raises"""
-    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
-    with pytest.raises(ValueError, match="is not a file"):
-        op.plan(Operation.Data(src=tmp_path / "missing.png", is_dry=False))
+def _data(src: Path) -> Operation.Data:
+    return Operation.Data(src=ImgFile(path=src), is_dry=False)
 
 
 def test_plan_already_in_subdir(tmp_path):
@@ -22,8 +20,7 @@ def test_plan_already_in_subdir(tmp_path):
     src = tmp_path / "cats" / "a.png"
     src.parent.mkdir()
     src.touch()
-    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
-    assert op.plan(Operation.Data(src=src, is_dry=False)) == {}
+    assert _move().plan(_data(src)) == {}
 
 
 def test_plan_dest_exists(tmp_path):
@@ -33,108 +30,76 @@ def test_plan_dest_exists(tmp_path):
     dest = tmp_path / "cats" / "a.png"
     dest.parent.mkdir()
     dest.touch()
-    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
     with pytest.raises(ValueError, match="already exists"):
-        op.plan(Operation.Data(src=src, is_dry=False))
+        _move().plan(_data(src))
 
 
-def test_plan_returns_dest(tmp_path):
-    """Test planning a move returns the intended destination"""
+def test_plan_returns_dest_and_advances_path(tmp_path):
+    """Test planning returns the intended destination & moves the image's planned path there"""
     src = tmp_path / "a.png"
     src.touch()
-    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
-    planned = op.plan(Operation.Data(src=src, is_dry=False))
-    assert planned == {"dest": str(tmp_path / "cats" / "a.png")}
+    data = _data(src)
+    assert _move().plan(data) == {"dest": str(tmp_path / "cats" / "a.png")}
+    # Planned path advances for the next op in a chain, the real file has not moved yet
+    assert data.src.path == tmp_path / "cats" / "a.png"
+    assert data.src.disk_path == src
 
 
 def test_run_moves_file(tmp_path):
     """Test running a move relocates the file to the planned destination"""
     src = tmp_path / "a.png"
     src.touch()
-    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
-    planned = op.plan(Operation.Data(src=src, is_dry=False))
-    op.run(Operation.Data(src=src, is_dry=False), planned)
+    op, data = _move(), _data(src)
+    op.run(data, op.plan(data))
     assert not src.exists()
     assert (tmp_path / "cats" / "a.png").exists()
+    assert data.src.disk_path == tmp_path / "cats" / "a.png"
 
 
-def test_run_noop_for_empty_planned(tmp_path):
-    """Test running a move with an empty planned dict does nothing"""
+def test_run_raises_if_dest_appeared(tmp_path):
+    """Test a dest created between plan & run stops the move instead of overwriting it"""
     src = tmp_path / "a.png"
     src.touch()
-    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
-    op.run(Operation.Data(src=src, is_dry=False), {})
-    assert src.exists()
-
-
-def test_can_undo_noop_entry(tmp_path):
-    """Test an entry with no op_out (already-in-subdir case) is always undoable"""
-    Move.can_undo(_entry(tmp_path / "a.png", {}))
-
-
-def test_can_undo_valid(tmp_path):
-    """Test a valid undo: src absent, dest present"""
-    dest = tmp_path / "cats" / "a.png"
+    op, data = _move(), _data(src)
+    planned = op.plan(data)
+    dest = Path(planned["dest"])
     dest.parent.mkdir()
-    dest.touch()
-    Move.can_undo(_entry(tmp_path / "a.png", {"dest": str(dest)}))
-
-
-def test_can_undo_src_exists(tmp_path):
-    """Test undo is rejected if the original src already exists (would overwrite it)"""
-    src = tmp_path / "a.png"
-    src.touch()
-    dest = tmp_path / "cats" / "a.png"
+    dest.write_text("do not clobber me")
     with pytest.raises(ValueError, match="already exists"):
-        Move.can_undo(_entry(src, {"dest": str(dest)}))
+        op.run(data, planned)
+    assert dest.read_text() == "do not clobber me"
 
 
-def test_can_undo_dest_missing(tmp_path):
-    """Test undo is rejected if the moved file's dest no longer exists"""
-    dest = tmp_path / "cats" / "a.png"
-    with pytest.raises(ValueError, match="missing"):
-        Move.can_undo(_entry(tmp_path / "a.png", {"dest": str(dest)}))
-
-
-def test_can_undo_failed_run_entry(tmp_path):
-    """Test an entry from a failed run (op_out holds an error, no dest) is a no-op to undo"""
-    Move.can_undo(_entry(tmp_path / "a.png", {"error": "something went wrong"}))
-
-
-def test_undo_moves_file_back(tmp_path):
-    """Test undoing a move relocates the file back to its original src"""
+def test_run_raises_if_src_is_gone(tmp_path):
+    """Test a src that disappeared between plan & run stops the move"""
     src = tmp_path / "a.png"
-    dest = tmp_path / "cats" / "a.png"
-    dest.parent.mkdir()
-    dest.touch()
-    Move.undo(Operation.Data(src=src, is_dry=False), {"dest": str(dest)})
-    assert src.exists()
-    assert not dest.exists()
+    src.touch()
+    op, data = _move(), _data(src)
+    planned = op.plan(data)
+    src.unlink()
+    with pytest.raises(ValueError, match="is not a file"):
+        op.run(data, planned)
 
 
-def test_undo_noop_for_empty_planned(tmp_path):
-    """Test undoing an empty planned dict does nothing"""
-    src = tmp_path / "a.png"
-    Move.undo(Operation.Data(src=src, is_dry=False), {})
-    assert not src.exists()
-
-
-def test_undo_noop_for_failed_run(tmp_path):
-    """Test undoing a failed-run entry (op_out holds an error, no dest) does nothing"""
-    src = tmp_path / "a.png"
-    Move.undo(Operation.Data(src=src, is_dry=False), {"error": "something went wrong"})
-    assert not src.exists()
+def _undone(src: Path, dest: Path) -> ImgFile:
+    """Return the image sitting at `dest`, with its move back to `src` planned"""
+    entry = Journal.Entry(
+        op="move", img_uid="img", src=src, ext_out={}, op_out={"dest": str(dest)}, is_dry=False
+    )
+    img = ImgFile.from_journal_for_undo(entry)
+    Move.undo(img, Move.plan_undo(entry, img))
+    return img
 
 
 def test_roundtrip(tmp_path):
-    """Test the plan -> run -> undo round trip, with undo reporting the file's real location"""
+    """Test the plan -> run -> undo round trip, with undo putting the file back where it began"""
     src = tmp_path / "a.png"
     src.touch()
-    op = Move(cfg=Move.Cfg(op="move", subdir_name="cats"))
-    data = Operation.Data(src=src, is_dry=False)
+    op, data = _move(), _data(src)
     planned = op.plan(data)
     op.run(data, planned)
-    assert op.undo(data, planned) == {"dest": str(src)}
+    img = _undone(src, Path(planned["dest"]))
+    assert img.disk_path == src
     assert src.exists()
     assert not Path(planned["dest"]).exists()
 
@@ -145,7 +110,7 @@ def test_undo_removes_emptied_subdir(tmp_path):
     dest = tmp_path / "cats" / "a.png"
     dest.parent.mkdir()
     dest.touch()
-    Move.undo(Operation.Data(src=src, is_dry=False), {"dest": str(dest)})
+    _undone(src, dest)
     assert not dest.parent.exists()
 
 
@@ -156,5 +121,19 @@ def test_undo_keeps_nonempty_subdir(tmp_path):
     dest.parent.mkdir()
     dest.touch()
     (dest.parent / "other.png").touch()
-    Move.undo(Operation.Data(src=src, is_dry=False), {"dest": str(dest)})
+    _undone(src, dest)
     assert dest.parent.exists()
+
+
+def test_plan_undo_rejects_overwriting_the_original(tmp_path):
+    """Test an undo that would clobber a file now sitting at the original name is refused"""
+    src = tmp_path / "a.png"
+    src.touch()
+    dest = tmp_path / "cats" / "a.png"
+    dest.parent.mkdir()
+    dest.touch()
+    entry = Journal.Entry(
+        op="move", img_uid="img", src=src, ext_out={}, op_out={"dest": str(dest)}, is_dry=False
+    )
+    with pytest.raises(ValueError, match="cannot tell whether the op ran"):
+        ImgFile.from_journal_for_undo(entry)

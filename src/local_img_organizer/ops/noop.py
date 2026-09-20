@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import override
 
+from local_img_organizer.img_file import ImgFile
 from local_img_organizer.interfaces import Journal, Operation, OpOut
 
 type _Data = Operation.Data
@@ -21,7 +22,9 @@ class Noop(Operation):
 
     @override
     def plan(self, data: _Data) -> OpOut:
-        return {}
+        # Nothing to do, but something to journal - recording what the extractor found is the
+        # whole point of this op, and an empty plan is never journaled
+        return {"noop": True}
 
     @override
     def run(self, data: _Data, planned: OpOut) -> None:
@@ -29,10 +32,10 @@ class Noop(Operation):
 
     @classmethod
     @override
-    def can_undo(cls, entry: Journal.Entry) -> None:
-        return
+    def plan_undo(cls, entry: Journal.Entry, img: ImgFile) -> OpOut:
+        return {}  # nothing was done to reverse
 
     @classmethod
     @override
-    def undo(cls, og_data: _Data, og_planned: OpOut) -> OpOut:
-        return {}
+    def undo(cls, img: ImgFile, planned: OpOut) -> None:
+        return

@@ -3,7 +3,7 @@
 import subprocess
 import time
 from collections import defaultdict
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, override
@@ -14,8 +14,9 @@ from pydantic import field_validator
 from transformers import CLIPModel, CLIPProcessor
 
 from local_img_organizer.config import parse_operations
-from local_img_organizer.interfaces import Extractor, Journal, Operation
-from local_img_organizer.utils import find_images, get_logger
+from local_img_organizer.img_file import ImgFile
+from local_img_organizer.interfaces import Extractor, Operation
+from local_img_organizer.utils import get_logger
 
 _log = get_logger(__name__)
 
@@ -58,7 +59,9 @@ class Classification(Extractor):
         return cls(cfg=cfg, categories_to_ops=cats_to_ops)
 
     @override
-    def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
+    def run(
+        self, images: list[ImgFile], *, is_dry: bool
+    ) -> Generator[tuple[Operation, Operation.Data]]:
         cfg = self.cfg
         _log.info(f"Loading model using {cfg.device}...")
         model, processor = _load_model(cfg.device)
@@ -66,8 +69,8 @@ class Classification(Extractor):
         _log.info(f"Classifying images into {len(categories)} categories: {categories}...")
         _log.info(f"- Cfg: thresh {cfg.threshold} batch {cfg.batch_size}")
         start_ns = time.time_ns()
-        path_to_cats = _classify_folder(
-            folder=img_dir,
+        path_to_cats = _classify_images(
+            image_paths=[img.path for img in images],
             labels=categories,
             model=model,
             processor=processor,
@@ -81,13 +84,12 @@ class Classification(Extractor):
         if cfg.debug:
             self._debug(path_to_cats)
             return
-        for path, category in path_to_cats.items():
+        for img in images:
+            category = path_to_cats.get(img.path)
             if category is None:
                 continue
             for op in self.categories_to_ops[category]:
-                yield op.prepare(
-                    Operation.Data(src=path, is_dry=is_dry), ext_data={"category": category}
-                )
+                yield op, Operation.Data(src=img, is_dry=is_dry, ext={"category": category})
 
     def _debug(self, path_to_cats: ImgToClass) -> None:
         """Interactively display images grouped by category for manual verification"""
@@ -155,8 +157,8 @@ def _load_model(device: str) -> tuple[CLIPModel, CLIPProcessor]:
 
 
 # TODO - would likely be cleaner as a generator to reduce memory usage
-def _classify_folder(
-    folder: Path,
+def _classify_images(
+    image_paths: list[Path],
     *,
     labels: list[str],
     model: CLIPModel,
@@ -168,7 +170,7 @@ def _classify_folder(
     """Return a dict mapping image paths (as strings) to their category (or None)
 
     Args:
-        folder: Path to folder containing images
+        image_paths: Images to classify
         labels: List of text descriptions for categories
             Tip: phrases like "a photo of a receipt" often work better than just "receipt"
         model: The loaded CLIP model
@@ -189,9 +191,6 @@ def _classify_folder(
         Can play with the batch size - too large & the GPU memory will run out
 
     """
-    # Find all common image files in the folder
-    image_paths = find_images(folder)
-
     if not image_paths:
         return {}
 
