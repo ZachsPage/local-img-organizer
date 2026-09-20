@@ -32,7 +32,7 @@
   * Wire up `run_undos` in `main.py` - done, `--undo` flag
 * `extractor` - `metadata` - done
 * `operation` - `noop` - done
-* Think through the pipeline when one image gets more than one `operation`
+* Think through the pipeline when one image gets more than one `operation` - done
     * Ex. `move` then `rename` - the 2nd op's `plan` is built against the original path, so it
       fails once the 1st op has moved the file. Not considered in the original design
     * Undo has the matching problem - a chain has to unwind in reverse (undo `rename`, *then*
@@ -56,15 +56,16 @@
     * Needs a way to route extractor metadata (ex. `date_taken`) into the new name
     * `tag` needs the same metadata access, but should only write it when the tag doesn't already
       exist on the file (ex. skip if `DateTimeOriginal` is already set)
-    * Also want to run an op only when a metadata value matches something specific - ex. `move`
-      only when `location` is a given city. `rename` is the first case needing this, but think it
-      through generally rather than one-off for `rename`
-* Exclusions list so extractors skip specific files or folders under the `--input-dir`
+* Exclusions list so extractors skip specific files or folders under the `--input-dir` - done
     * Entries take names or wildcards - ex. `Screenshots`, `*.gif`, `IMG_*_edited.jpg`
     * Apply in `find_images` so every extractor gets it for free - and add looking in subdirs
-* `operation` - `tag`
+* `operation` - `tag` - done
     * Use `exiftool` (`-P` to preserve mtime) to tag since it's in place, not Pillow as it can
       drop tags & re-encode pixels
+* Run an op only when a metadata value matches something specific - ex. `move` only when
+  `location` is a given city. `rename` was the first case needing this, but think it through
+  generally rather than one-off for a single op
+    * `Metadata.Cfg.require` already filters on a key being *present* - this is the value match
 * Any op that rewrites file bytes has to preserve mtime
     * A rename leaves mtime alone, but a content write bumps it - so tagging a photo that still
       has no `DateTimeOriginal` makes a later run see the rewrite time as its `file_modified`,

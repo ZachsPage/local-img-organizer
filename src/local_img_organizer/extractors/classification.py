@@ -70,7 +70,7 @@ class Classification(Extractor):
         _log.info(f"- Cfg: thresh {cfg.threshold} batch {cfg.batch_size}")
         start_ns = time.time_ns()
         path_to_cats = _classify_images(
-            image_paths=[img.path for img in images],
+            image_paths=[img.disk_path for img in images],
             labels=categories,
             model=model,
             processor=processor,
@@ -85,7 +85,7 @@ class Classification(Extractor):
             self._debug(path_to_cats)
             return
         for img in images:
-            category = path_to_cats.get(img.path)
+            category = path_to_cats.get(img.disk_path)
             if category is None:
                 continue
             for op in self.categories_to_ops[category]:

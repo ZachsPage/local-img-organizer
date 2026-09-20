@@ -118,10 +118,12 @@ class Metadata(Extractor):
             _log.info(f"- Only running operations for images with: {cfg.require}")
         counts = {"date_taken": 0, "gps": 0, "error": 0}
         for img in images:
-            meta = _extract(img.path, lookup_location=cfg.lookup_location)
+            # Read from where the file really is - `path` is where ops have *planned* to put it,
+            # and a dry run never moves anything, so the two differ for every op after the first
+            meta = _extract(img.disk_path, lookup_location=cfg.lookup_location)
             for key in counts:
                 counts[key] += key in meta
-            ops = self.ops if self._should_run_ops(img.path, meta) else []
+            ops = self.ops if self._should_run_ops(img.disk_path, meta) else []
             for op in ops:
                 yield op, Operation.Data(src=img, is_dry=is_dry, ext=meta)
         _log.info(
@@ -151,7 +153,9 @@ def _extract(path: Path, *, lookup_location: bool) -> ExtOut:
             at one - it is up to an operation to decide whether falling back to it makes sense
         gps: {lat, lon} in signed decimal degrees
         location: the {city, county, state, country, country_code} the gps resolves to
-        error: why the image could not be read - the other keys will be missing
+        error: why the image could not be read - the other keys will be missing. A file that is
+            not there at all raises instead, since `find_images` just listed it - that can only
+            mean the run is reading a path an operation planned rather than where the file is
     """
     try:
         with Image.open(path) as img:
@@ -162,6 +166,8 @@ def _extract(path: Path, *, lookup_location: bool) -> ExtOut:
             sub: _Tags = dict(exif.get_ifd(ExifTags.IFD.Exif))
             gps: _Tags = dict(exif.get_ifd(ExifTags.IFD.GPSInfo))
             png_text = {k: v for k, v in img.info.items() if isinstance(v, str)}
+    except FileNotFoundError:
+        raise
     except Exception as ex:  # noqa: BLE001
         _log.error(f"Unable to read {path}: {ex}")
         return {"error": str(ex)}

@@ -9,6 +9,7 @@ from local_img_organizer.config import parse_exclusions, parse_extractors
 from local_img_organizer.extractors.classification import Classification
 from local_img_organizer.extractors.metadata import Metadata
 from local_img_organizer.ops.move import Move
+from local_img_organizer.ops.tag import Tag
 
 _EXAMPLE_CFG = Path(__file__).parent.parent / "config" / "example_cfg.yaml"
 
@@ -27,13 +28,23 @@ def test_example_config_loads() -> None:
 
 
 def test_example_config_categories() -> None:
-    """Classification extractor has the expected categories and Move ops"""
+    """Classification extractor has the expected categories, each with a single op"""
     ext = _example_classification()
     assert "a recipe or cooking instructions" in ext.categories_to_ops
     assert "a receipt, bill, or document" in ext.categories_to_ops
     for ops in ext.categories_to_ops.values():
         assert len(ops) == 1
-        assert isinstance(ops[0], Move)
+        assert isinstance(ops[0], Move | Tag)
+
+
+def test_example_config_tag_ops() -> None:
+    """The categories using `tag` build Tag ops carrying a keyword to write"""
+    every_op = [op for ops in _example_classification().categories_to_ops.values() for op in ops]
+    tags = [op for op in every_op if isinstance(op, Tag)]
+    assert tags
+    for op in tags:
+        assert op.cfg.name
+        assert op.cfg.value
 
 
 def test_move_cfg_subdir_name() -> None:

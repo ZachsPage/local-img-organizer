@@ -18,18 +18,21 @@ extractors:
       - "a receipt, bill, or document":
         - op: move
           subdir_name: documents
-      # TODO: tag op not yet implemented
-      # - "an outdoor scene with nature or buildings":
-      #   - op: tag
-      #     name: type
-      #     value: outdoor
-      # - "an indoor room or interior space":
-      #   - op: tag
-      #     name: type
-      #     value: indoor
+      - "a vehicle":
+        - op: tag
+          name: type
+          value: vehicle
+      - "a pet":
+        - op: tag
+          name: type
+          value: pet
   metadata:
     # Extracts date_taken / file_modified / gps / location - with no operations set up every
     # readable image runs `noop`, so the metadata still shows up in the journal
     lookup_location: true # turn any gps found into a city / state / country
     operations:
       - op: rename
+      # Backfill the "date taken" tags from the file's modified time, but only for images with no
+      # capture time of their own - needs `exiftool` on PATH
+      - op: tag
+        date: true
