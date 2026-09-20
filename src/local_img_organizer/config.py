@@ -9,6 +9,13 @@ from local_img_organizer.interfaces import Extractor, Operation
 from local_img_organizer.utils import import_cls
 
 
+def parse_exclusions(cfg_file: Path) -> list[str]:
+    """Parse YAML config and return the names / wildcards `find_images` should skip"""
+    with Path.open(cfg_file) as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("exclusions") or []
+
+
 def parse_extractors(cfg_file: Path) -> list[Extractor]:
     """Parse YAML config and return ready-to-run Extractor instances"""
     with Path.open(cfg_file) as f:

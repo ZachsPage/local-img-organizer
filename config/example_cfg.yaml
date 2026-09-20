@@ -1,4 +1,11 @@
 # Example configuration
+
+# Names or wildcards under --input-dir that extractors skip - matched against the file name and
+# every dir name below --input-dir, so a dir name skips everything under it
+exclusions:
+  - "Screenshots"
+  - "IMG_*_edited.jpg"
+
 extractors:
   classification:
     threshold: 0.999 # very sure

@@ -12,6 +12,10 @@ This project serves a few purposes:
 A config file can be provided like [example_cfg.yaml](./config/example_cfg.yaml) to run 
 `extractors` on the local photos, and use their data to execute `operations` (`ops`).
 
+An `exclusions` list in the config makes every `extractor` skip matching files or folders under
+`--input-dir` - entries are names or wildcards (ex. `Screenshots`, `*.gif`, `IMG_*_edited.jpg`),
+matched case-sensitively against the file name and every folder name below `--input-dir`.
+
 The available `extractors` are:
 - `classification`
     - Extracts an images classification based on use defined buckets - or `None` of it does not match any

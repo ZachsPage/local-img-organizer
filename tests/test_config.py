@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from local_img_organizer.config import parse_extractors
+from local_img_organizer.config import parse_exclusions, parse_extractors
 from local_img_organizer.extractors.classification import Classification
 from local_img_organizer.extractors.metadata import Metadata
 from local_img_organizer.ops.move import Move
@@ -104,5 +104,22 @@ extractors:
     try:
         with pytest.raises(ValueError, match="Unknown op"):
             parse_extractors(tmp_path)
+    finally:
+        tmp_path.unlink()
+
+
+def test_example_config_exclusions() -> None:
+    """parse_exclusions returns the example config's skip patterns"""
+    assert parse_exclusions(_EXAMPLE_CFG) == ["Screenshots", "IMG_*_edited.jpg"]
+
+
+def test_missing_exclusions() -> None:
+    """No exclusions configured returns an empty list"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write("extractors:\n")
+        tmp_path = Path(f.name)
+
+    try:
+        assert parse_exclusions(tmp_path) == []
     finally:
         tmp_path.unlink()

@@ -28,6 +28,7 @@ def test_main_journal_dir_defaults_to_input_dir(monkeypatch, tmp_path):
     cfg = tmp_path / "cfg.yaml"
     monkeypatch.setattr(sys, "argv", ["main.py", "-i", str(tmp_path), "-c", str(cfg)])
     monkeypatch.setattr(main_module, "parse_extractors", lambda _: [])
+    monkeypatch.setattr(main_module, "parse_exclusions", lambda _: [])
     monkeypatch.setattr(
         main_module, "run_ops", lambda _dir, journal, *_, **__: calls.setdefault("journal", journal)
     )
@@ -58,13 +59,14 @@ def test_main_runs_ops_when_not_undo(monkeypatch, tmp_path):
         calls["cfg"] = cfg_file
         return ["fake_extractor"]
 
-    def fake_run_ops(input_dir, journal, extractors, *, is_dry):
-        calls["run_ops"] = (input_dir, journal, extractors, is_dry)
+    def fake_run_ops(input_dir, journal, extractors, *, exclusions, is_dry):
+        calls["run_ops"] = (input_dir, journal, extractors, exclusions, is_dry)
 
     def fake_run_undos(*args, **kwargs):
         calls["run_undos"] = (args, kwargs)
 
     monkeypatch.setattr(main_module, "parse_extractors", fake_parse_extractors)
+    monkeypatch.setattr(main_module, "parse_exclusions", lambda _: ["Screenshots"])
     monkeypatch.setattr(main_module, "run_ops", fake_run_ops)
     monkeypatch.setattr(main_module, "run_undos", fake_run_undos)
     monkeypatch.setattr(
@@ -77,9 +79,10 @@ def test_main_runs_ops_when_not_undo(monkeypatch, tmp_path):
 
     assert "run_undos" not in calls
     assert calls["cfg"] == cfg
-    input_dir, journal, extractors, is_dry = calls["run_ops"]
+    input_dir, journal, extractors, exclusions, is_dry = calls["run_ops"]
     assert input_dir == tmp_path
     assert extractors == ["fake_extractor"]
+    assert exclusions == ["Screenshots"]
     assert is_dry is False
     assert isinstance(journal, CSVJournal)
     assert journal.journal_dir == journal_dir
@@ -103,6 +106,7 @@ def test_main_runs_undos_when_undo_flag_set(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "run_undos", fake_run_undos)
     monkeypatch.setattr(main_module, "run_ops", fake_run_ops)
     monkeypatch.setattr(main_module, "parse_extractors", fake_parse_extractors)
+    monkeypatch.setattr(main_module, "parse_exclusions", fake_parse_extractors)
     monkeypatch.setattr(sys, "argv", ["main.py", "--undo", "-j", str(journal_dir), "--dry-run"])
 
     main_module.main()

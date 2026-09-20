@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -16,14 +17,30 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name.removeprefix("local_img_organizer."))
 
 
-def find_images(folder: Path, extensions: Iterable[str] = IMG_EXTENSIONS) -> list[Path]:
-    """Return the image files directly in `folder`, sorted, matching `extensions` case-insensitively
+def find_images(
+    folder: Path,
+    extensions: Iterable[str] = IMG_EXTENSIONS,
+    exclusions: Iterable[str] = (),
+) -> list[Path]:
+    """Return the image files under `folder`, sorted, matching `extensions` case-insensitively
 
-    :param folder: Dir to look in
+    :param folder: Dir to look in, recursively
     :param extensions: Extensions to keep, with or without a leading "." - ex. "jpg" / ".JPG"
+    :param exclusions: Names or wildcards to skip, case-sensitively - ex. "Screenshots",
+        "*.gif", "IMG_*_edited.jpg". Matched against the file name and every dir name between
+        `folder` and it, so excluding a dir skips everything under it
     """
     wanted = {f".{ext.lower().lstrip('.')}" for ext in extensions}
-    return sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in wanted)
+    skip = list(exclusions)
+    return sorted(
+        p
+        for p in folder.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in wanted
+        and not any(
+            fnmatchcase(part, pattern) for part in p.relative_to(folder).parts for pattern in skip
+        )
+    )
 
 
 def import_cls(module: str, name: str, *, kind: str) -> Any:  # noqa: ANN401
