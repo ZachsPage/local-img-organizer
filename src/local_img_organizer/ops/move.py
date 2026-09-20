@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
+from local_img_organizer.img_file import ImgFile
 from local_img_organizer.interfaces import Journal, Operation, OpOut
 from local_img_organizer.utils import get_logger
 
@@ -25,44 +26,25 @@ class Move(Operation):
 
     @override
     def plan(self, data: _Data) -> OpOut:
-        if not data.src.is_file():
-            raise ValueError(f"{data.src} is not a file")
-        if data.src.parent.name == self.cfg.subdir_name:
-            _log.debug(f"{data.src.name}: skipping, already in {self.cfg.subdir_name}")
+        path = data.src.path
+        if path.parent.name == self.cfg.subdir_name:
+            _log.debug(f"{path.name}: skipping, already in {self.cfg.subdir_name}")
             return {}
-        dest = data.src.parent / self.cfg.subdir_name / data.src.name
-        if dest.exists():
-            raise ValueError(f"Dest {dest} already exists?")
-        return {"dest": str(dest)}
+        return data.src.plan_path_change(path.parent / self.cfg.subdir_name / path.name)
 
     @override
     def run(self, data: _Data, planned: OpOut) -> None:
-        if not planned:
-            return
-        dest = Path(planned["dest"])
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        data.src.rename(dest)
+        data.src.apply_path_change(Path(planned["dest"]))
 
     @classmethod
     @override
-    def can_undo(cls, entry: Journal.Entry) -> None:
-        dest = entry.op_out.get("dest")
-        if not dest:
-            return
-        if Path(entry.src).exists():
-            raise ValueError(f"{entry.src}: already exists, undo would overwrite it")
-        if not Path(dest).exists():
-            raise ValueError(f"{entry.src}: dest {dest} is missing, cannot undo move")
+    def plan_undo(cls, entry: Journal.Entry, img: ImgFile) -> OpOut:
+        return img.plan_move_back(entry)
 
     @classmethod
     @override
-    def undo(cls, og_data: _Data, og_planned: OpOut) -> OpOut:
-        dest = og_planned.get("dest")
-        if not dest:
-            return {}
-        dest_path = Path(dest)
-        dest_path.rename(og_data.src)
-        subdir = dest_path.parent
+    def undo(cls, img: ImgFile, planned: OpOut) -> None:
+        subdir = img.disk_path.parent
+        img.apply_path_change(Path(planned["dest"]))
         if not any(subdir.iterdir()):
             subdir.rmdir()
-        return {"dest": str(og_data.src)}

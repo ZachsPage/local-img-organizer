@@ -1,7 +1,7 @@
 """Photo metadata extraction - ex. when a photo was taken & where"""
 
 import math
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
 from email.utils import parsedate_to_datetime
@@ -13,9 +13,10 @@ from PIL.TiffImagePlugin import IFDRational
 from pydantic import Field, model_validator
 
 from local_img_organizer.config import parse_operations
-from local_img_organizer.interfaces import ExtOut, Extractor, Journal, Operation
+from local_img_organizer.img_file import ImgFile
+from local_img_organizer.interfaces import ExtOut, Extractor, Operation
 from local_img_organizer.ops.noop import Noop
-from local_img_organizer.utils import find_images, get_logger
+from local_img_organizer.utils import get_logger
 
 _log = get_logger(__name__)
 
@@ -108,22 +109,23 @@ class Metadata(Extractor):
         return cls(cfg=cfg, ops=parse_operations(cfg.operations) or [Noop()])
 
     @override
-    def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
+    def run(
+        self, images: list[ImgFile], *, is_dry: bool
+    ) -> Generator[tuple[Operation, Operation.Data]]:
         cfg = self.cfg
-        paths = find_images(img_dir)
-        _log.info(f"Extracting metadata from {len(paths)} images in {img_dir}...")
+        _log.info(f"Extracting metadata from {len(images)} images...")
         if cfg.require:
             _log.info(f"- Only running operations for images with: {cfg.require}")
         counts = {"date_taken": 0, "gps": 0, "error": 0}
-        for path in paths:
-            meta = _extract(path, lookup_location=cfg.lookup_location)
+        for img in images:
+            meta = _extract(img.path, lookup_location=cfg.lookup_location)
             for key in counts:
                 counts[key] += key in meta
-            ops = self.ops if self._should_run_ops(path, meta) else []
+            ops = self.ops if self._should_run_ops(img.path, meta) else []
             for op in ops:
-                yield op.prepare(Operation.Data(src=path, is_dry=is_dry), ext_data=meta)
+                yield op, Operation.Data(src=img, is_dry=is_dry, ext=meta)
         _log.info(
-            f"Found a capture time for {counts['date_taken']}/{len(paths)} images, "
+            f"Found a capture time for {counts['date_taken']}/{len(images)} images, "
             f"coordinates for {counts['gps']}, and failed to read {counts['error']}"
         )
 

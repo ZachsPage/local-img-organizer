@@ -1,29 +1,17 @@
 import logging
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, override
 
 import pytest
 
+from local_img_organizer.img_file import ImgFile
 from local_img_organizer.interfaces import Extractor, Journal, Operation, OpOut, run_ops, run_undos
 from local_img_organizer.ops.noop import Noop
+from tests.stubs import StubJournal
 
 _log = logging.getLogger(__name__)
-
-
-@dataclass
-class StubJournal(Journal):
-    entries: list[Journal.Entry] = field(default_factory=list)
-
-    @override
-    def log(self, entry: Journal.Entry) -> None:
-        _log.info(entry)
-        self.entries.append(entry)
-
-    @override
-    def read(self, source: Path | None = None) -> Generator[Journal.Entry]:
-        yield from self.entries
 
 
 class StubOperation(Operation):
@@ -32,22 +20,21 @@ class StubOperation(Operation):
 
     @override
     def plan(self, data: Operation.Data) -> OpOut:
-        return {"from": str(data.src), "to": f"{data.src}_renamed"}
+        return data.src.plan_path_change(Path(f"{data.src.path}_renamed"))
 
     @override
     def run(self, data: Operation.Data, planned: OpOut) -> None:
-        _log.info("would rename %s -> %s", planned["from"], planned["to"])
+        _log.info("would rename %s -> %s", data.src.path, planned["dest"])
 
     @classmethod
     @override
-    def can_undo(cls, entry: Journal.Entry) -> None:
-        pass
+    def plan_undo(cls, entry: Journal.Entry, img: ImgFile) -> OpOut:
+        return img.plan_move_back(entry)
 
     @classmethod
     @override
-    def undo(cls, og_data: Operation.Data, og_out: OpOut) -> OpOut:
-        _log.info("would undo %s -> %s", og_out["to"], og_out["from"])
-        return {"from": og_out["to"], "to": og_out["from"]}
+    def undo(cls, img: ImgFile, planned: OpOut) -> None:
+        _log.info("would undo %s -> %s", img.path, planned["dest"])
 
 
 @dataclass
@@ -59,11 +46,17 @@ class StubExtractor(Extractor):
     label: ClassVar[str] = "test_ext_label"
 
     @override
-    def run(self, img_dir: Path, *, is_dry: bool) -> Generator[Callable[[], Journal.Entry]]:
-        for file in img_dir.iterdir():
-            data = Operation.Data(src=file, is_dry=is_dry)
+    def run(
+        self, images: list[ImgFile], *, is_dry: bool
+    ) -> Generator[tuple[Operation, Operation.Data]]:
+        for img in images:
+            data = Operation.Data(src=img, is_dry=is_dry, ext={"label": self.label})
             for op in self.ops:
-                yield op.prepare(data, ext_data={"label": self.label})
+                yield op, data
+
+
+def _entry(src: Path, op_out: dict, *, op: str = "move", img_uid: str = "img") -> Journal.Entry:
+    return Journal.Entry(op=op, img_uid=img_uid, src=src, ext_out={}, op_out=op_out, is_dry=False)
 
 
 def test_run_ops(tmp_path):
@@ -85,14 +78,49 @@ def test_run_ops(tmp_path):
         assert entry.op == "stuboperation"
         assert entry.src in files
         assert entry.ext_out == {"label": StubExtractor.label}
-        assert entry.op_out == {"from": str(entry.src), "to": f"{entry.src}_renamed"}
+        assert entry.op_out == {"dest": f"{entry.src}_renamed"}
         assert entry.is_dry is False
 
-    # Verify undo - op_out should reflect the reversal, not just echo the original entry
-    for entry in entries:
-        undo_entry = op.prepare_undo(entry)()
-        assert undo_entry.op == "stuboperation"
-        assert undo_entry.op_out == {"from": entry.op_out["to"], "to": entry.op_out["from"]}
+    # Verify each image got its own id for undo to group a chain by
+    assert len({e.img_uid for e in entries}) == len(files)
+
+
+def test_run_ops_chains_ops_on_one_image(tmp_path):
+    """Test a 2nd op plans against where the 1st op puts the file, and both share an img_uid"""
+    (tmp_path / "a.png").touch()
+
+    journal = StubJournal()
+    run_ops(tmp_path, journal, [StubExtractor(ops=[StubOperation(), StubOperation()])])
+    first, second = journal.entries
+
+    assert first.src == tmp_path / "a.png"
+    assert second.src == Path(first.op_out["dest"])
+    assert first.img_uid == second.img_uid
+
+
+def test_run_ops_journals_before_running(tmp_path):
+    """Test the entry is journaled before the operation executes, so a crash cannot lose it"""
+    (tmp_path / "a.png").touch()
+
+    class LogChecker(StubJournal):
+        @override
+        def log(self, entry: Journal.Entry) -> None:
+            super().log(entry)
+            assert not ran, "entry must be journaled before the op runs"
+
+    ran = False
+
+    class SlowOp(StubOperation):
+        class Cfg(Operation.Cfg):
+            pass
+
+        @override
+        def run(self, data: Operation.Data, planned: OpOut) -> None:
+            nonlocal ran
+            ran = True
+
+    run_ops(tmp_path, LogChecker(), [StubExtractor(ops=[SlowOp()])])
+    assert ran
 
 
 def test_run_ops_skips_entries_without_action(tmp_path):
@@ -121,8 +149,7 @@ def test_run_ops_dry_run_tags_entries(tmp_path):
     (tmp_path / "test_file.png").touch()
 
     journal = StubJournal()
-    op = StubOperation()
-    run_ops(tmp_path, journal, [StubExtractor(ops=[op])], is_dry=True)
+    run_ops(tmp_path, journal, [StubExtractor(ops=[StubOperation()])], is_dry=True)
     entries = list(journal.read())
 
     assert len(entries) == 1
@@ -136,8 +163,7 @@ def test_run_ops_resolves_relative_img_dir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     journal = StubJournal()
-    op = StubOperation()
-    run_ops(Path("sub"), journal, [StubExtractor(ops=[op])])
+    run_ops(Path("sub"), journal, [StubExtractor(ops=[StubOperation()])])
     entries = list(journal.read())
 
     assert len(entries) == 1
@@ -153,54 +179,29 @@ def test_bad_op_no_cfg():
             pass
 
 
-def test_bad_op_run():
-    """Test avoiding bubbling up operation exceptions, but ensure they are journaled"""
+def test_failed_run_journals_error_and_stops(tmp_path):
+    """Test a failed run journals the error, then stops the run rather than carrying on"""
+    for name in ("a.png", "b.png"):
+        (tmp_path / name).touch()
 
-    class FailingOp(Operation):
+    class FailingOp(StubOperation):
         class Cfg(Operation.Cfg):
             pass
-
-        @override
-        def plan(self, data: Operation.Data) -> OpOut:
-            return {"planned": "something"}
 
         @override
         def run(self, data: Operation.Data, planned: OpOut) -> None:
             msg = "something went wrong"
             raise RuntimeError(msg)
 
-        @classmethod
-        @override
-        def can_undo(cls, entry: Journal.Entry) -> None:
-            pass
+    journal = StubJournal()
+    with pytest.raises(RuntimeError, match="something went wrong"):
+        run_ops(tmp_path, journal, [StubExtractor(ops=[FailingOp()])])
 
-        @classmethod
-        @override
-        def undo(cls, og_data: Operation.Data, og_out: OpOut) -> OpOut:
-            return {}
-
-    data = Operation.Data(src=Path("fake.png"), is_dry=False)
-    entry = FailingOp().prepare(data, ext_data={"label": "x"})()
-
-    # Verify error was captured, not raised
-    assert entry.op_out == {"error": "something went wrong"}
-
-
-def test_prepare_passes_ext_to_plan():
-    """Test the extractor's data reaches plan through Operation.Data.ext"""
-
-    class ExtOp(StubOperation):
-        class Cfg(Operation.Cfg):
-            pass
-
-        @override
-        def plan(self, data: Operation.Data) -> OpOut:
-            return dict(data.ext)
-
-    data = Operation.Data(src=Path("fake.png"), is_dry=True)
-    entry = ExtOp().prepare(data, ext_data={"label": "x"})()
-    assert entry.op_out == {"label": "x"}
-    assert entry.ext_out == {"label": "x"}
+    # The planned entry, then the error - and nothing for the 2nd image
+    assert [e.op_out for e in journal.entries] == [
+        {"dest": f"{tmp_path / 'a.png'}_renamed"},
+        {"error": "something went wrong"},
+    ]
 
 
 # run_undos resolves op classes dynamically via `local_img_organizer.ops.<entry.op>`, so these
@@ -208,22 +209,15 @@ def test_prepare_passes_ext_to_plan():
 
 
 def test_run_undos_collects_all_invalid_entries(tmp_path):
-    """Test run_undos validates every entry before raising, collecting all failure reasons
-    together (rather than stopping at the first bad entry) - this is what defer_exceptions buys us
-    """
+    """Test run_undos reports every entry it cannot undo, rather than stopping at the first"""
     blocked_src = tmp_path / "already_here.png"
-    blocked_src.touch()  # src already exists -> Move.can_undo rejects it
+    blocked_src.touch()
+    blocked_dest = tmp_path / "cats" / "already_here.png"
+    blocked_dest.parent.mkdir()
+    blocked_dest.touch()  # src & dest both exist -> cannot tell whether the move ran
     entries = [
-        Journal.Entry(
-            op="move",
-            src=blocked_src,
-            ext_out={},
-            op_out={"dest": str(tmp_path / "cats" / "already_here.png")},
-            is_dry=False,
-        ),
-        Journal.Entry(
-            op="bogus_op", src=tmp_path / "other.png", ext_out={}, op_out={}, is_dry=False
-        ),
+        _entry(blocked_src, {"dest": str(blocked_dest)}),
+        _entry(tmp_path / "other.png", {"dest": str(tmp_path / "x.png")}, op="bogus_op"),
     ]
     journal = StubJournal(entries=list(entries))
 
@@ -231,7 +225,7 @@ def test_run_undos_collects_all_invalid_entries(tmp_path):
         run_undos(journal, source=Path("unused"))
 
     message = str(exc_info.value)
-    assert "already exists" in message
+    assert "cannot tell whether the op ran" in message
     assert "Unknown op: 'bogus_op'" in message
     # Neither entry was valid, so nothing should have been undone or logged
     assert journal.entries == entries
@@ -241,6 +235,7 @@ def test_run_undos_rejects_dry_run_entry(tmp_path):
     """Test run_undos refuses to undo an entry that was only planned, never executed"""
     entry = Journal.Entry(
         op="move",
+        img_uid="img",
         src=tmp_path / "a.png",
         ext_out={},
         op_out={"dest": str(tmp_path / "cats" / "a.png")},
@@ -262,21 +257,63 @@ def test_run_undos_undoes_valid_entries(tmp_path):
     dest.touch()
     src = tmp_path / "a.png"
 
-    entry = Journal.Entry(
-        op="move", src=src, ext_out={"category": "cats"}, op_out={"dest": str(dest)}, is_dry=False
-    )
+    entry = _entry(src, {"dest": str(dest)})
     journal = StubJournal(entries=[entry])
-    before = len(journal.entries)
 
     run_undos(journal, source=Path("unused"))
 
     assert src.exists()
     assert not dest.exists()
-    assert len(journal.entries) == before + 1
     undo_entry = journal.entries[-1]
     assert undo_entry.op == "move"
     # op_out should reflect where the file actually ended up (src), not echo the original entry
     assert undo_entry.op_out == {"dest": str(src)}
+
+
+def test_run_undos_unwinds_a_chain_in_reverse(tmp_path):
+    """Test a chain undoes newest first, since its earlier entries name paths that only exist
+    again once the later ones are undone
+    """
+    final = tmp_path / "cats" / "IMG20240101120000.jpg"
+    final.parent.mkdir()
+    final.touch()
+    original = tmp_path / "a.jpg"
+    renamed = tmp_path / "IMG20240101120000.jpg"
+
+    journal = StubJournal(
+        entries=[
+            _entry(original, {"dest": str(renamed)}, op="rename"),
+            _entry(renamed, {"dest": str(final)}),
+        ]
+    )
+    run_undos(journal, source=Path("unused"))
+
+    assert original.exists()
+    assert not final.exists()
+    assert not final.parent.exists()
+    assert [e.op for e in journal.entries[2:]] == ["move", "rename"]
+
+
+def test_run_undos_warns_for_an_entry_that_never_ran(tmp_path, caplog):
+    """Test an entry whose op never ran (a failed run, or a crash) warns & undoes from where the
+    file really is, rather than refusing to undo the journal
+    """
+    original = tmp_path / "a.jpg"
+    renamed = tmp_path / "IMG20240101120000.jpg"
+    renamed.touch()
+    journal = StubJournal(
+        entries=[
+            _entry(original, {"dest": str(renamed)}, op="rename"),
+            # This move was journaled, then failed - the file is still where rename left it
+            _entry(renamed, {"dest": str(tmp_path / "dated" / renamed.name)}),
+        ]
+    )
+
+    run_undos(journal, source=Path("unused"))
+
+    assert "never moved to" in caplog.text
+    assert original.exists()  # the rename before it still unwound
+    assert [e.op for e in journal.entries[2:]] == ["rename"]
 
 
 def test_run_undos_dry_run_does_not_execute(tmp_path):
@@ -286,14 +323,16 @@ def test_run_undos_dry_run_does_not_execute(tmp_path):
     dest.touch()
     src = tmp_path / "a.png"
 
-    entry = Journal.Entry(op="move", src=src, ext_out={}, op_out={"dest": str(dest)}, is_dry=False)
+    entry = _entry(src, {"dest": str(dest)})
     journal = StubJournal(entries=[entry])
 
     run_undos(journal, source=Path("unused"), is_dry=True)
 
     assert not src.exists()
     assert dest.exists()
-    assert journal.entries[-1].op_out == entry.op_out
+    # The undo is journaled as planned - putting the file back at the entry's src - but not run
+    assert journal.entries[-1].op_out == {"dest": str(src)}
+    assert journal.entries[-1].is_dry is True
 
 
 def test_run_undos_no_journal_files():
