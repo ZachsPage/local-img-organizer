@@ -11,6 +11,8 @@ from local_img_organizer.journals.csv_journal import CSVJournal
 
 _log = logging.getLogger(__name__)
 
+DEFAULT_CFG = "local_img_org.yaml"
+
 
 def parse_args() -> argparse.Namespace:
     """Return the parsed arguments"""
@@ -21,7 +23,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Top dir to look for images under",
     )
-    parser.add_argument("-c", "--cfg", type=Path, help="Input yaml config")
+    parser.add_argument(
+        "-c",
+        "--cfg",
+        type=Path,
+        help=f"Input yaml config - defaults to {DEFAULT_CFG} in --input-dir",
+    )
     parser.add_argument(
         "-j",
         "--journal-dir",
@@ -31,8 +38,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-d",
         "--dry-run",
-        action="store_true",
-        help="Plan / journal operations without executing them",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Plan / journal operations without executing them - pass --no-dry-run to execute",
     )
     parser.add_argument(
         "--undo",
@@ -57,8 +65,11 @@ def parse_args() -> argparse.Namespace:
     if args.gui == "only":
         if args.journal_dir is None and args.input_dir is None:
             parser.error("--journal-dir/-j or --input-dir/-i is required with --gui only")
-    elif not args.undo and (args.input_dir is None or args.cfg is None):
-        parser.error("--input-dir/-i and --cfg/-c are required unless --undo is set")
+    elif not args.undo:
+        if args.input_dir is None:
+            parser.error("--input-dir/-i is required unless --undo is set")
+        if args.cfg is None and not (args.input_dir / DEFAULT_CFG).is_file():
+            parser.error(f"--cfg/-c is required unless {args.input_dir / DEFAULT_CFG} exists")
     return args
 
 
@@ -78,9 +89,14 @@ def main() -> None:
             raise RuntimeError(f"No journal files found in {args.journal_dir}")
         html_view.show(journal, files[0])
         return
+    if args.dry_run:
+        _log.warning("Dry run - nothing will be changed. Pass --no-dry-run to execute")
     if args.undo:
         run_undos(journal, is_dry=args.dry_run)
     else:
+        if args.cfg is None:
+            args.cfg = args.input_dir / DEFAULT_CFG
+            _log.info(f"Nothing passed for --cfg, use {args.cfg}")
         extractors = parse_extractors(args.cfg)
         exclusions = parse_exclusions(args.cfg)
         run_ops(args.input_dir, journal, extractors, exclusions=exclusions, is_dry=args.dry_run)

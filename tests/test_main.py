@@ -15,6 +15,25 @@ def test_parse_args_requires_input_and_cfg_without_undo(monkeypatch):
         main_module.parse_args()
 
 
+def test_parse_args_requires_cfg_without_a_default_cfg_file(monkeypatch, tmp_path):
+    """Test omitting -c fails when -i holds no default config to fall back to"""
+    monkeypatch.setattr(sys, "argv", ["main.py", "-i", str(tmp_path)])
+    with pytest.raises(SystemExit):
+        main_module.parse_args()
+
+
+def test_main_cfg_defaults_to_the_default_cfg_file(monkeypatch, tmp_path):
+    """Test omitting -c falls back to the default config in -i"""
+    calls = {}
+    (tmp_path / main_module.DEFAULT_CFG).touch()
+    monkeypatch.setattr(sys, "argv", ["main.py", "-i", str(tmp_path), "--gui", "none"])
+    monkeypatch.setattr(main_module, "parse_extractors", lambda cfg: calls.setdefault("cfg", cfg))
+    monkeypatch.setattr(main_module, "parse_exclusions", lambda _: [])
+    monkeypatch.setattr(main_module, "run_ops", lambda *_, **__: None)
+    main_module.main()
+    assert calls["cfg"] == tmp_path / main_module.DEFAULT_CFG
+
+
 def test_parse_args_allows_missing_input_and_cfg_with_undo(monkeypatch):
     """Test -i/-c are optional when --undo is set"""
     monkeypatch.setattr(sys, "argv", ["main.py", "--undo", "-j", "journals"])
@@ -85,7 +104,7 @@ def test_main_runs_ops_when_not_undo(monkeypatch, tmp_path):
     assert input_dir == tmp_path
     assert extractors == ["fake_extractor"]
     assert exclusions == ["Screenshots"]
-    assert is_dry is False
+    assert is_dry is True
     assert isinstance(journal, CSVJournal)
     assert journal.journal_dir == journal_dir
 
@@ -109,14 +128,14 @@ def test_main_runs_undos_when_undo_flag_set(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "run_ops", fake_run_ops)
     monkeypatch.setattr(main_module, "parse_extractors", fake_parse_extractors)
     monkeypatch.setattr(main_module, "parse_exclusions", fake_parse_extractors)
-    monkeypatch.setattr(sys, "argv", ["main.py", "--undo", "-j", str(journal_dir), "--dry-run"])
+    monkeypatch.setattr(sys, "argv", ["main.py", "--undo", "-j", str(journal_dir), "--no-dry-run"])
 
     main_module.main()
 
     assert "run_ops" not in calls
     assert "parse_extractors" not in calls
     journal, is_dry = calls["run_undos"]
-    assert is_dry is True
+    assert is_dry is False
     assert isinstance(journal, CSVJournal)
     assert journal.journal_dir == journal_dir
 
