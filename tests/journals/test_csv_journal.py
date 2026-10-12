@@ -62,11 +62,11 @@ def test_read_specific_source(tmp_path):
     first.log(_entry(0))
 
     second = CSVJournal(journal_dir=tmp_path / "other")
-    assert list(second.read(source=first._file)) == [_entry(0)]  # noqa: SLF001
+    assert list(second.read(source=first.file)) == [_entry(0)]
 
 
-def test_get_files_for_undo(tmp_path):
-    """Test get_files_for_undo lists all journal files in journal_dir, newest first"""
+def test_get_files(tmp_path):
+    """Test get_files lists all journal files in journal_dir, newest first"""
     journal = CSVJournal(journal_dir=tmp_path)
     first = f"{CSVJournal.FILE_PREFIX}20260101_000000.csv"
     second = f"{CSVJournal.FILE_PREFIX}20260102_000000.csv"
@@ -74,14 +74,14 @@ def test_get_files_for_undo(tmp_path):
     (tmp_path / second).touch()
     (tmp_path / "not_a_journal.csv").touch()
 
-    files = journal.get_files_for_undo()
+    files = journal.get_files()
     assert [f.name for f in files] == [second, first]
 
 
-def test_get_files_for_undo_missing_dir(tmp_path):
-    """Test get_files_for_undo returns an empty list if journal_dir doesn't exist yet"""
+def test_get_files_missing_dir(tmp_path):
+    """Test get_files returns an empty list if journal_dir doesn't exist yet"""
     journal = CSVJournal(journal_dir=tmp_path / "nonexistent")
-    assert journal.get_files_for_undo() == []
+    assert journal.get_files() == []
 
 
 def test_round_trip_csv_special_characters(tmp_path):

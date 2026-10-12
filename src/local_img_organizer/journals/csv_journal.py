@@ -22,6 +22,11 @@ class CSVJournal(Journal):
     journal_dir: Path
     _file: Path | None = field(default=None, init=False, repr=False)
 
+    @property
+    def file(self) -> Path | None:
+        """The journal file this instance has written, or None before anything was logged"""
+        return self._file
+
     @override
     def log(self, entry: Journal.Entry) -> None:
         with self._get_or_create_file().open("a", newline="") as f:
@@ -37,7 +42,7 @@ class CSVJournal(Journal):
             )
 
     @override
-    def get_files_for_undo(self) -> list[Path]:
+    def get_files(self) -> list[Path]:
         if not self.journal_dir.exists():
             return []
         return sorted(self.journal_dir.glob(f"{self.FILE_PREFIX}*.csv"), reverse=True)

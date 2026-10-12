@@ -43,8 +43,8 @@ class Journal(ABC):
     def log(self, entry: Entry) -> None:
         """Write out the entry"""
 
-    def get_files_for_undo(self) -> list[Path]:
-        """Return journal files available for undo"""
+    def get_files(self) -> list[Path]:
+        """Return every journal file available, newest first"""
         return []
 
     @abstractmethod
@@ -208,9 +208,11 @@ def run_undos(
     :param is_dry: Plan undos without executing them
     """
     if not source:
-        options = journal.get_files_for_undo()
+        # A dry run journals what it planned without doing any of it, so its entries have nothing
+        # to reverse - offering those files would only ever end in `_plan_undos` refusing them
+        options = [f for f in journal.get_files() if any(not e.is_dry for e in journal.read(f))]
         if not options:
-            raise RuntimeError("No journal files available to undo")
+            raise RuntimeError("No journal files with executed operations available to undo")
         for i, f in enumerate(options):
             print(f"  [{i}] {f.name}")
         source = options[int(input("Select journal to undo: "))]

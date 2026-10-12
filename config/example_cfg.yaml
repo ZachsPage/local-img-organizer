@@ -22,7 +22,7 @@ extractors:
         - op: tag
           name: type
           value: vehicle
-      - "a pet":
+      - "a dog or cat, or other pet":
         - op: tag
           name: type
           value: pet

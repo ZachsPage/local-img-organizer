@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import ClassVar, override
 
@@ -8,6 +8,7 @@ import pytest
 
 from local_img_organizer.img_file import ImgFile
 from local_img_organizer.interfaces import Extractor, Journal, Operation, OpOut, run_ops, run_undos
+from local_img_organizer.journals.csv_journal import CSVJournal
 from local_img_organizer.ops.noop import Noop
 from tests.stubs import StubJournal
 
@@ -338,5 +339,32 @@ def test_run_undos_dry_run_does_not_execute(tmp_path):
 def test_run_undos_no_journal_files():
     """Test run_undos raises if no source is given and no journal files are available"""
     journal = StubJournal()
-    with pytest.raises(RuntimeError, match="No journal files available"):
+    with pytest.raises(RuntimeError, match="No journal files"):
+        run_undos(journal, source=None)
+
+
+def test_run_undos_prompt_skips_dry_run_journals(tmp_path, monkeypatch, capsys):
+    """Test the undo prompt only offers journals that executed something, not dry-run ones"""
+    dry = CSVJournal(journal_dir=tmp_path)
+    dry.log(replace(_entry(tmp_path / "planned.png", {"dest": "x.png"}), is_dry=True))
+    dest = tmp_path / "cats" / "a.png"
+    dest.parent.mkdir()
+    dest.touch()
+    real = CSVJournal(journal_dir=tmp_path)
+    real.log(_entry(tmp_path / "a.png", {"dest": str(dest)}))
+    monkeypatch.setattr("builtins.input", lambda _: "0")
+
+    run_undos(CSVJournal(journal_dir=tmp_path))
+
+    printed = capsys.readouterr().out
+    assert real.file.name in printed
+    assert dry.file.name not in printed
+    assert (tmp_path / "a.png").exists()  # the real journal's move was the one undone
+
+
+def test_run_undos_only_dry_run_journals(monkeypatch):
+    """Test run_undos raises rather than offering a journal with nothing executed to undo"""
+    journal = StubJournal(entries=[replace(_entry(Path("a.png"), {}), is_dry=True)])
+    monkeypatch.setattr(journal, "get_files", lambda: [Path("journal.csv")])
+    with pytest.raises(RuntimeError, match="No journal files with executed operations"):
         run_undos(journal, source=None)
