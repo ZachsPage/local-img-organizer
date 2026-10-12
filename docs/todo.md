@@ -70,6 +70,20 @@
     * A rename leaves mtime alone, but a content write bumps it - so tagging a photo that still
       has no `DateTimeOriginal` makes a later run see the rewrite time as its `file_modified`,
       silently. Wrap writes in a `preserve_mtime` helper in `utils.py`
-* Maybe add a GUI to show a planned journal from dry-run?
+* Maybe add a GUI to show a planned journal from dry-run? - done, `--gui`
+    * `html_view.render` turns a journal into one self-contained HTML page - a thumbnail per
+      image & its whole op chain - so the browser is the GUI, no toolkit or server
+    * Reads a journal file & nothing else, so it works on a real run's journal (what happened)
+      and an undo's as well, not only a dry run's (what will happen)
+    * Thumbnails try the newest planned `dest` first, then `src` - a dry run moves nothing, so
+      its `dest` paths do not exist, and after a real run the `src` is the path that is gone
+    * Fixed the undo prompt listing dry-run journals - `_plan_undos` already refused their
+      entries, so they were only ever offered to then fail. `Journal.get_files_for_undo` lost
+      the `_for_undo` now that the GUI lists journals too
+    * Paths are shown relative to the one dir they all share (`os.path.commonpath` of every
+      journaled parent), which is printed once up top - full absolute paths per row were
+      unreadable. Falls back to the full path when there is no shared root
+    * Skipped: editing a planned journal from the page (approve / reject an op before the real
+      run) - that needs a server, not a static page
 
 ## Working Notes

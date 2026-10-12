@@ -46,6 +46,14 @@ The available `operations` to execute (once fed output data from an `extractor`)
     - Does nothing to the file - records what the extractor found in the journal
     - Used automatically when an extractor has no operations configured
 
+Every run writes a CSV `journal` of what each `operation` did, or planned to do on a dry run,
+and renders it as a single self-contained HTML page opened in the browser:
+- Each row is one image - its thumbnail, where the file started, and every `operation` on it in
+  order
+- One journal holds one run, so a banner up top says once whether the page is a dry run's plan
+  or a real run's history, rather than labeling every entry
+- The dir every path sits under is also shown once up top & left off of each row
+
 A large focus of this project is to provide `undo` functionality:
 - While dry-runs are supported, maybe an incorrect `rename` or `subfolder` operation slipped through
 - The user should be able to find what was done, and undo the whole operation
@@ -85,4 +93,6 @@ uv run ruff check --fix
 uv run pytest
 # For testing / an example, move some images into ./tests/my_data/ then:
 uv run main.py --input-dir ./tests/my_data/ -c ./config/example_cfg.yaml --dry-run
+# Review the newest journal again without running anything
+uv run main.py --gui only -j ./tests/my_data/
 ```
