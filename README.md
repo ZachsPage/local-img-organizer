@@ -10,7 +10,8 @@ This project serves a few purposes:
 **This project is a work in progress - this README lists the project's goals, see [todo.md](./docs/todo.md) for pending work**
 
 A config file can be provided like [example_cfg.yaml](./config/example_cfg.yaml) to run 
-`extractors` on the local photos, and use their data to execute `operations` (`ops`).
+`extractors` on the local photos, and use their data to execute `operations` (`ops`). Without
+`--cfg`, `local_img_org.yaml` in `--input-dir` is used.
 
 An `exclusions` list in the config makes every `extractor` skip matching files or folders under
 `--input-dir` - entries are names or wildcards (ex. `Screenshots`, `*.gif`, `IMG_*_edited.jpg`),
@@ -54,6 +55,8 @@ and renders it as a single self-contained HTML page opened in the browser:
   or a real run's history, rather than labeling every entry
 - The dir every path sits under is also shown once up top & left off of each row
 
+![Example of the HTML page for a dry run](./docs/gui_example.png)
+
 A large focus of this project is to provide `undo` functionality:
 - While dry-runs are supported, maybe an incorrect `rename` or `subfolder` operation slipped through
 - The user should be able to find what was done, and undo the whole operation
@@ -91,8 +94,14 @@ uv run ruff format && uv run ruff check
 uv run ruff check --fix
 # Run all tests
 uv run pytest
-# For testing / an example, move some images into ./tests/my_data/ then:
-uv run main.py --input-dir ./tests/my_data/ -c ./config/example_cfg.yaml --dry-run
+# For an example, build a dir of drawn stand-in photos with its own config, then run on it -
+# this is what docs/gui_example.png shows
+uv run scripts/make_demo.py /tmp/local_img_org_demo
+uv run main.py --input-dir /tmp/local_img_org_demo
+# For testing on real photos, move some images into ./tests/my_data/ then:
+uv run main.py --input-dir ./tests/my_data/ -c ./config/example_cfg.yaml
+# Runs are dry by default - execute the plan for real with:
+uv run main.py --input-dir ./tests/my_data/ -c ./config/example_cfg.yaml --no-dry-run
 # Review the newest journal again without running anything
 uv run main.py --gui only -j ./tests/my_data/
 ```
